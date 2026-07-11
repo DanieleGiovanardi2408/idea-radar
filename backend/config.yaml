@@ -1,0 +1,23 @@
+# Configurazione di Idea Radar
+# Le sezioni sono placeholder: verranno popolate quando si implementa la logica.
+
+# Fonti da cui raccogliere idee/segnali (solo API gratuite).
+sources:
+  # - name: github-trending
+  #   type: github
+  # - name: hackernews
+  #   type: hn
+
+# Parole chiave per filtrare/cercare le idee.
+keywords:
+  # - "developer tools"
+  # - "automation"
+
+# Parametri di scoring delle idee.
+scoring:
+  weights:
+    # novelty: 0.4
+    # traction: 0.3
+    # feasibility: 0.3
+  # Soglia minima perché un'idea entri nel radar.
+  # threshold: 0.6

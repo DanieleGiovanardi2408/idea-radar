@@ -1,0 +1,21 @@
+# Env e segreti
+.env
+.env.*
+!.env.example
+
+# Dati locali (mai committati)
+*.db
+data/
+
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Build
+dist/
+build/
+
+# OS
+.DS_Store
