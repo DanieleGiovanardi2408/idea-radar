@@ -60,9 +60,10 @@ def _config() -> AppConfig:
 
 
 def _items() -> list[Item]:
+    # "ai" nel titolo => fit > 0 => passano il fit-gate e arrivano davvero all'LLM.
     return [
-        Item(source="hn", external_id="1", title="progetto uno"),
-        Item(source="hn", external_id="2", title="progetto due"),
+        Item(source="hn", external_id="1", title="ai progetto uno"),
+        Item(source="hn", external_id="2", title="ai progetto due"),
     ]
 
 
@@ -105,10 +106,25 @@ def test_new_item_in_second_run_is_the_only_llm_call(engine) -> None:
     with Session(engine) as s:
         run_pipeline(
             s, _config(), Settings(),
-            sources=[FakeSource(_items() + [Item(source="hn", external_id="3", title="tre nuovo")])],
+            sources=[FakeSource(_items() + [Item(source="hn", external_id="3", title="ai tre nuovo")])],
             ollama=ollama, embedder=FakeEmbedder(),
         )
     assert ollama.insight_calls == 3  # +1 solo per il nuovo
+
+
+def test_off_topic_item_skips_the_llm(engine) -> None:
+    """Fit-gate: un item senza match di keyword non deve spendere il 7B."""
+    ollama = CountingOllama()
+    items = [
+        Item(source="hn", external_id="1", title="ai uno"),         # in tema ("ai")
+        Item(source="hn", external_id="2", title="carbonara due"),  # fuori tema
+    ]
+    with Session(engine) as s:
+        run_pipeline(
+            s, _config(), Settings(),
+            sources=[FakeSource(items)], ollama=ollama, embedder=FakeEmbedder(),
+        )
+    assert ollama.insight_calls == 1  # solo l'item in tema chiama il modello
 
 
 def test_score_is_still_recomputed_each_run(engine) -> None:

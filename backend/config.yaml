@@ -55,12 +55,18 @@ scoring:
   relevance_floor: 0.25
   # Soglia minima del composite perché un'idea passi a status "proposed".
   threshold: 0.5
+  # Fit minimo perché a un item valga l'insight LLM: sotto, insight euristico
+  # (niente 7B). 0.0 = salta solo gli item senza alcun match di keyword;
+  # alzala (~0.2) per saltare anche i match deboli e velocizzare ancora i run.
+  insight_min_fit: 0.0
 
 # Aggregazione semantica (richiede `ollama pull nomic-embed-text`).
 clustering:
   # Similarità coseno minima per fondere due item nella STESSA idea.
-  # Alta = fonde solo quasi-duplicati. Abbassala se vedi doppioni.
-  idea_threshold: 0.82
+  # Alta = fonde solo quasi-duplicati. Con il prefisso "clustering:" negli
+  # embedding i duplicati semantici salgono, quindi 0.75 è un punto di partenza
+  # più sensato di 0.82. Alzala se vedi fusioni sbagliate, abbassala se doppioni.
+  idea_threshold: 0.75
   # Similarità minima (più permissiva) per mettere due idee nello stesso topic.
   topic_threshold: 0.62
   # Nomina i topic con l'LLM invece di ereditare il titolo della prima idea.

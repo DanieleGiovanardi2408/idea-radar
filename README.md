@@ -84,8 +84,8 @@ the Trend view is empty by construction: it needs at least two.)
 - **Trends across runs** — topics are tracked over time so you can see what's rising.
 - **Resilient collection** — a rate-limited or broken feed is skipped, never
   crashes a run; RSS fetching is polite (honest User-Agent, throttling, `Retry-After`).
-- **Fast re-runs** — LLM insights are cached per idea, so repeat runs only pay for
-  genuinely new content.
+- **Cost-aware LLM use** — insights are cached per idea (repeat runs only pay for
+  new content) and clearly off-topic items skip the model entirely (fit-gate).
 - **Four views** — Radar (ranked ideas), Topic (grouped by theme), Trend (what's
   moving between runs), Monitor (live pipeline progress).
 
@@ -208,9 +208,21 @@ This repository contains **code only**. The database with collected data stays
 
 ## Roadmap
 
-- [ ] Idea-level deduplication tuning (embeddings now use the correct `clustering:`
-      task prefix; the `idea_threshold` is the next dial).
-- [ ] Insight computed once per idea instead of per item, to cut LLM cost further.
+Recently shipped:
+
+- [x] Semantic deduplication working end-to-end — embeddings use the `clustering:`
+      task prefix and `idea_threshold` is tuned (114 raw items collapse to ~36 ideas).
+- [x] Per-idea insight cache — repeat runs only pay the LLM for genuinely new content.
+- [x] Fit-gate — clearly off-topic items skip the LLM entirely.
+- [x] Consistent idea status — an idea's status/summary come from its best-scoring item.
+- [x] `recluster` command — re-groups ideas into topics from cached embeddings in
+      seconds, for fast `topic_threshold` tuning without a full run.
+
+Next:
+
+- [ ] Topic-level tuning (raise `topic_threshold` for finer, less catch-all themes).
+- [ ] Scheduled/automated runs so trends accumulate on their own.
+- [ ] Idea lifecycle — archive or decay stale ideas so the radar stays fresh.
 - [ ] Configurable, smaller insight model for faster runs on modest hardware.
 - [ ] More source connectors behind the same interface.
 

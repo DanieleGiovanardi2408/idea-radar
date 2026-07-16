@@ -1,0 +1,97 @@
+"""`recluster_topics` ri-raggruppa le idee in topic dagli embedding già salvati,
+con la nuova `topic_threshold`, senza rifare fetch/embedding/insight."""
+
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+from sqlmodel import Session, create_engine, select
+
+from app.appconfig import AppConfig, ClusteringConfig, ScoringConfig
+from app.config import Settings
+from app.db import init_db
+from app.llm import IdeaInsight
+from app.models import Idea, Item, Topic
+from app.pipeline import recluster_topics, run_pipeline
+
+
+class FakeSource:
+    def __init__(self, items: list[Item]) -> None:
+        self._items = items
+
+    def fetch(self) -> list[Item]:
+        return self._items
+
+
+class FakeOllama:
+    def insight(self, item: Item) -> IdeaInsight:
+        return IdeaInsight(summary=f"s {item.title}", why_text="w", difficulty=None)
+
+    def topic_label(self, labels: list[str]) -> str:
+        return "topic"
+
+
+class FakeEmbedder:
+    """Due vettori a coseno 0.8: stanno insieme sotto soglia 0.5, separati sotto 0.95."""
+
+    unavailable = False
+
+    def embed(self, text: str) -> list[float]:
+        return [1.0, 0.0] if "uno" in text.lower() else [0.8, 0.6]
+
+
+@pytest.fixture
+def session(tmp_path: Path) -> Iterator[Session]:
+    engine = create_engine(f"sqlite:///{tmp_path / 'test.db'}")
+    init_db(engine)
+    with Session(engine) as s:
+        yield s
+
+
+def _config(topic_threshold: float) -> AppConfig:
+    return AppConfig(
+        sources=[],
+        keywords=["ai"],
+        scoring=ScoringConfig(weights={"heat": 1.0}, threshold=0.5),
+        clustering=ClusteringConfig(
+            idea_threshold=0.99, topic_threshold=topic_threshold, llm_topic_labels=False
+        ),
+    )
+
+
+def test_recluster_retunes_topics_without_a_full_run(session: Session) -> None:
+    items = [
+        Item(source="hn", external_id="1", title="ai uno"),
+        Item(source="hn", external_id="2", title="ai due"),
+    ]
+    # Run iniziale con topic_threshold permissiva: le due idee finiscono in UN topic.
+    run_pipeline(
+        session, _config(topic_threshold=0.5), Settings(),
+        sources=[FakeSource(items)], ollama=FakeOllama(), embedder=FakeEmbedder(),
+    )
+    assert len(session.exec(select(Idea)).all()) == 2
+    assert len(session.exec(select(Topic)).all()) == 1
+
+    # Recluster con soglia più severa: stessi embedding, ma ora due topic distinti.
+    result = recluster_topics(
+        session, _config(topic_threshold=0.95), Settings(), ollama=FakeOllama()
+    )
+    assert result["n_ideas"] == 2          # le idee non vengono toccate
+    assert result["n_topics"] == 2         # separati senza rifare il run
+    assert len(session.exec(select(Topic)).all()) == 2
+
+
+def test_recluster_is_idempotent_on_same_threshold(session: Session) -> None:
+    items = [
+        Item(source="hn", external_id="1", title="ai uno"),
+        Item(source="hn", external_id="2", title="ai due"),
+    ]
+    run_pipeline(
+        session, _config(topic_threshold=0.95), Settings(),
+        sources=[FakeSource(items)], ollama=FakeOllama(), embedder=FakeEmbedder(),
+    )
+    before = len(session.exec(select(Topic)).all())
+    result = recluster_topics(
+        session, _config(topic_threshold=0.95), Settings(), ollama=FakeOllama()
+    )
+    assert result["n_topics"] == before    # stessa soglia => stesso numero di topic

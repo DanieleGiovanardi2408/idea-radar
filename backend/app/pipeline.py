@@ -14,9 +14,9 @@ from app.clustering import assign_ideas_to_topics, attach_item_to_idea
 from app.config import Settings, get_settings
 from app.db import get_session, init_db, upsert_item
 from app.embeddings import OllamaEmbedder, embed_item
-from app.llm import IdeaInsight, OllamaClient, generate_insight
-from app.models import Idea, IdeaStatus, Item, Run, RunStatus, Score, TopicStat, utcnow
-from app.scoring import score_item
+from app.llm import IdeaInsight, OllamaClient, generate_insight, heuristic_insight
+from app.models import Idea, Item, Run, RunStatus, Score, TopicStat, utcnow
+from app.scoring import keyword_fit, score_item
 from app.sources import Source, create_source
 
 logger = logging.getLogger(__name__)
@@ -175,8 +175,6 @@ def run_pipeline(
         if on_progress is not None:
             on_progress(f"raccolti {len(collected)} item, genero gli insight…")
 
-        n_processed = 0
-        n_proposed = 0
         for index, item in enumerate(collected, start=1):
             _progress(
                 session, run, phase=f"analisi idee ({index}/{len(collected)})"
@@ -193,29 +191,35 @@ def run_pipeline(
             idea = attach_item_to_idea(
                 session, item, item.embedding_json, config.clustering.idea_threshold
             )
-            insight = _cached_insight(session, idea) or generate_insight(
-                item, settings, ollama=ollama
-            )
+            cached = _cached_insight(session, idea)
+            if cached is not None:
+                insight = cached
+            elif keyword_fit(item, config.keywords) <= config.scoring.insight_min_fit:
+                # Item del tutto fuori tema: niente 7B, basta l'insight euristico.
+                insight = heuristic_insight(item)
+            else:
+                insight = generate_insight(item, settings, ollama=ollama)
             result = score_item(item, insight, config)
+
+            idea.last_seen = utcnow()
+
+            existing_score = session.get(Score, (idea.id, run.id))
+            # La faccia dell'idea (summary, status, punteggio) deve venire dal
+            # MIGLIORE item del run, non dall'ultimo processato: un item peggiore
+            # non ridefinisce l'idea. Con la dedup attiva più item cadono nella
+            # stessa idea, quindi qui ci si passa spesso — ed è il motivo per cui
+            # prima un'idea poteva mostrare composite alto ma status "processed".
+            if existing_score is not None and result.composite <= existing_score.composite:
+                session.add(idea)
+                session.commit()
+                continue
 
             idea.summary = insight.summary
             idea.status = result.status
-            idea.last_seen = utcnow()
             session.add(idea)
 
-            existing_score = session.get(Score, (idea.id, run.id))
             if existing_score is not None:
-                # Più item nella stessa idea: tiene il punteggio migliore.
-                if result.composite <= existing_score.composite:
-                    continue
                 session.delete(existing_score)
-                session.commit()
-            else:
-                if result.status == IdeaStatus.PROPOSED:
-                    n_proposed += 1
-                else:
-                    n_processed += 1
-
             session.add(
                 Score(
                     idea_id=idea.id,
@@ -245,8 +249,13 @@ def run_pipeline(
         run.finished_at = utcnow()
         run.status = RunStatus.DONE
         run.phase = "completato"
+        # Contatori del run calcolati sugli score effettivi di QUESTO run, per
+        # coerenza col composite mostrato (e non dallo status dell'idea, che può
+        # persistere da run precedenti o cambiare tra item della stessa idea).
+        run_scores = session.exec(select(Score).where(Score.run_id == run.id)).all()
+        n_proposed = sum(1 for s in run_scores if s.composite >= config.scoring.threshold)
         run.n_items = len(collected)
-        run.n_ideas_processed = n_processed
+        run.n_ideas_processed = len(run_scores) - n_proposed
         run.n_ideas_proposed = n_proposed
         run.n_ideas_total = len(session.exec(select(Idea)).all())
         run.n_topics = n_topics
@@ -282,3 +291,55 @@ def execute_run(
             "n_ideas_proposed": run.n_ideas_proposed,
             "n_topics": run.n_topics,
         }
+
+
+def recluster_topics(
+    session: Session,
+    config: AppConfig,
+    settings: Settings,
+    *,
+    ollama: OllamaClient | None = None,
+) -> dict[str, int]:
+    """Ricostruisce SOLO i topic (idee→topic) dagli embedding già salvati.
+
+    Non rifà fetch, embedding né insight: serve a ri-provare ``topic_threshold``
+    in pochi secondi e vederne subito l'effetto. Azzera i topic e le loro
+    statistiche, riassegna le idee e ri-fotografa i topic per il run più recente.
+    L'unica eventuale chiamata LLM è il naming dei topic, se attivo.
+    """
+    from app.models import Topic
+
+    ollama = ollama or OllamaClient(settings)
+
+    for stat in session.exec(select(TopicStat)).all():
+        session.delete(stat)
+    for idea in session.exec(select(Idea)).all():
+        idea.topic_id = None
+        session.add(idea)
+    for topic in session.exec(select(Topic)).all():
+        session.delete(topic)
+    session.commit()
+
+    assign_ideas_to_topics(
+        session,
+        config.clustering.topic_threshold,
+        namer=_topic_namer(config, ollama),
+    )
+
+    last_run = session.exec(select(Run).order_by(Run.id.desc())).first()
+    if last_run is not None:
+        _record_topic_stats(session, last_run)
+
+    return {
+        "n_ideas": len(session.exec(select(Idea)).all()),
+        "n_topics": len(session.exec(select(Topic)).all()),
+    }
+
+
+def execute_recluster() -> dict[str, int]:
+    """Wiring di default per il comando CLI ``recluster``."""
+    init_db()
+    config = get_config()
+    settings = get_settings()
+    with get_session() as session:
+        return recluster_topics(session, config, settings)

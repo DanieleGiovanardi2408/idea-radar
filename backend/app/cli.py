@@ -4,7 +4,7 @@ import typer
 
 from app.db import get_session, init_db
 from app.models import IdeaStatus
-from app.pipeline import execute_run
+from app.pipeline import execute_recluster, execute_run
 from app.queries import monitor_stats, top_ideas, topic_trends, topics_overview
 
 app = typer.Typer(help="Idea Radar CLI")
@@ -34,6 +34,18 @@ def run() -> None:
         f"{summary['n_ideas_processed']} processed, "
         f"{summary['n_topics']} topic."
     )
+
+
+@app.command()
+def recluster() -> None:
+    """Ri-raggruppa le idee in topic dagli embedding salvati, senza rifare il run.
+
+    Utile per provare in fretta `topic_threshold` in config.yaml e vedere subito
+    l'effetto: niente re-fetch, niente embedding, niente insight LLM per item.
+    """
+    typer.echo("Ricostruzione dei topic dagli embedding salvati…")
+    summary = execute_recluster()
+    typer.echo(f"Fatto — {summary['n_ideas']} idee raggruppate in {summary['n_topics']} topic.")
 
 
 @app.command()

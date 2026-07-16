@@ -127,6 +127,16 @@ def _fit(item: Item, keywords: list[str]) -> float:
     return min(1.0, matched / denom)
 
 
+def keyword_fit(item: Item, keywords: list[str]) -> float:
+    """Rilevanza per keyword (0-1), esposta per filtrare gli item PRIMA dell'LLM.
+
+    Il fit è già il moltiplicatore di rilevanza dello scoring; qui lo rendiamo
+    pubblico per decidere, a costo zero (nessuna chiamata al modello), se vale
+    la pena spendere il 7B su un item o se è del tutto fuori tema.
+    """
+    return _fit(item, keywords)
+
+
 def _recency(item: Item) -> float:
     if item.created_at is None:
         return 0.4

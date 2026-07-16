@@ -37,6 +37,10 @@ class ScoringConfig(BaseModel):
     # Quanto "sopravvive" un'idea del tutto fuori tema (fit=0):
     # composite = quality * (relevance_floor + (1 - relevance_floor) * fit).
     relevance_floor: float = 0.25
+    # Fit minimo perché a un item valga la pena spendere l'insight LLM: sotto
+    # questa soglia si usa l'insight euristico (niente 7B). 0.0 = salta solo i
+    # fit == 0, cioè gli item senza NESSUN match di keyword.
+    insight_min_fit: float = 0.0
 
     @field_validator("weights")
     @classmethod
