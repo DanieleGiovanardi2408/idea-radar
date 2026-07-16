@@ -1,23 +1,67 @@
 # Configurazione di Idea Radar
-# Le sezioni sono placeholder: verranno popolate quando si implementa la logica.
+# Comportamento della pipeline: fonti, keyword, scoring, clustering.
+# I segreti (token, host Ollama) stanno nel .env, non qui.
 
 # Fonti da cui raccogliere idee/segnali (solo API gratuite).
 sources:
-  # - name: github-trending
-  #   type: github
-  # - name: hackernews
-  #   type: hn
+  - name: hackernews
+    type: hn
+    limit: 30        # quante top-story scaricare
+    enabled: true
+  - name: github
+    type: github
+    limit: 30        # quanti repo dalla Search API
+    enabled: true
+  # Riviste, blog e forum: il lato "trend" del radar.
+  - name: riviste-e-forum
+    type: rss
+    limit: 60        # totale, ripartito tra i feed qui sotto (~6 a feed)
+    enabled: true
+    # Solo feed che servono RSS a un client semplice, verificati 200 con l'UA
+    # onesto del collector. I siti dietro muri anti-bot Cloudflare o rate-limit
+    # aggressivo (es. r/selfhosted) sono esclusi apposta: non vale la pena
+    # rincorrerli con trucchi sull'UA. Il segnale "self-hosted" arriva da hnrss.
+    feeds:
+      - https://feeds.arstechnica.com/arstechnica/technology-lab
+      - https://feed.infoq.com/
+      - https://lobste.rs/rss
+      - https://dev.to/feed
+      - https://www.reddit.com/r/programming/.rss
+      - https://github.blog/feed/
+      - https://changelog.com/feed
+      - https://simonwillison.net/atom/everything/      # AI e dev tools
+      - https://hnrss.org/newest?q=self-hosted          # rimpiazza il flaky r/selfhosted
 
-# Parole chiave per filtrare/cercare le idee.
+# Parole chiave per filtrare/cercare le idee e per il punteggio di "fit".
 keywords:
-  # - "developer tools"
-  # - "automation"
+  - "developer tools"
+  - "automation"
+  - "ai agents"
+  - "open source"
+  - "self-hosted"
+  - "productivity"
 
 # Parametri di scoring delle idee.
 scoring:
+  # Pesi delle 4 metriche di "qualità" (vengono normalizzate a somma 1).
+  # NB: `fit` NON è qui: è un moltiplicatore di rilevanza, non un addendo,
+  # così un'idea fuori tema viene abbattuta anche se popolare.
   weights:
-    # novelty: 0.4
-    # traction: 0.3
-    # feasibility: 0.3
-  # Soglia minima perché un'idea entri nel radar.
-  # threshold: 0.6
+    heat: 0.30          # velocità di crescita (non popolarità assoluta)
+    credibility: 0.15   # affidabilità della fonte/autore
+    feasibility: 0.25   # quanto è realizzabile da un piccolo team (da LLM)
+    opportunity: 0.30   # recente E non ancora saturo
+  # Quanto resta a un'idea del tutto fuori tema (fit=0): 0 = azzerata, 1 = fit ignorato.
+  relevance_floor: 0.25
+  # Soglia minima del composite perché un'idea passi a status "proposed".
+  threshold: 0.5
+
+# Aggregazione semantica (richiede `ollama pull nomic-embed-text`).
+clustering:
+  # Similarità coseno minima per fondere due item nella STESSA idea.
+  # Alta = fonde solo quasi-duplicati. Abbassala se vedi doppioni.
+  idea_threshold: 0.82
+  # Similarità minima (più permissiva) per mettere due idee nello stesso topic.
+  topic_threshold: 0.62
+  # Nomina i topic con l'LLM invece di ereditare il titolo della prima idea.
+  llm_topic_labels: true

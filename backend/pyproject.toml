@@ -11,6 +11,7 @@ dependencies = [
     "httpx>=0.28",
     "pydantic-settings>=2.8",
     "typer>=0.15",
+    "pyyaml>=6.0",
 ]
 
 [dependency-groups]

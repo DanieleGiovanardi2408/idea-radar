@@ -1,0 +1,181 @@
+"""Scoring euristico delle idee.
+
+Idea di fondo: un radar non deve premiare ciò che *ha già vinto*, ma ciò che
+**sta salendo**. Quindi:
+
+- ``heat`` misura la **velocità** (stelle/giorno su GitHub, engagement su HN e
+  RSS), non la popolarità assoluta: n8n con 100k stelle in 6 anni non è
+  un'opportunità, un repo con 2k stelle in 3 mesi sì.
+- ``saturation`` misura quanto una cosa è *già affermata* (popolarità assoluta
+  + età) e **abbassa** l'opportunity: è il freno che tiene i progetti maturi
+  fuori dalla cima.
+- ``fit`` non entra nella media pesata: è un **moltiplicatore** di rilevanza,
+  così un'idea fuori tema viene abbattuta anche se popolare.
+
+    composite = quality * (relevance_floor + (1 - relevance_floor) * fit)
+"""
+
+import math
+import re
+
+from pydantic import BaseModel
+
+from app.appconfig import AppConfig
+from app.llm import IdeaInsight
+from app.models import Difficulty, IdeaStatus, Item, utcnow
+
+_QUALITY_METRICS = ("heat", "credibility", "feasibility", "opportunity")
+
+# Velocità che vale heat = 1.0, per fonte.
+_VELOCITY_CAP = {"github": 30.0, "hn": 300.0}  # stelle/giorno | punti+commenti
+_DEFAULT_VELOCITY_CAP = 100.0
+
+# Popolarità assoluta oltre la quale una cosa è "affermata".
+_SATURATION_CAP = {"github": 60_000.0, "hn": 1_500.0}
+_DEFAULT_SATURATION_CAP = 2_000.0
+
+_SOURCE_CREDIBILITY = {"hn": 0.35, "github": 0.45, "rss": 0.40}
+_DIFFICULTY_FEASIBILITY = {
+    Difficulty.LOW: 0.80,
+    Difficulty.MED: 0.55,
+    Difficulty.HIGH: 0.30,
+}
+_WORD_RE = re.compile(r"[a-z0-9]+")
+
+
+class ScoreResult(BaseModel):
+    heat: float
+    credibility: float
+    feasibility: float
+    opportunity: float
+    fit: float
+    composite: float
+    status: IdeaStatus
+
+
+def _clamp(x: float) -> float:
+    return max(0.0, min(1.0, x))
+
+
+def _saturate(x: float, cap: float) -> float:
+    """Compressione logaritmica in [0, 1]: cresce presto, poi si appiattisce."""
+    if x <= 0 or cap <= 0:
+        return 0.0
+    return min(1.0, math.log10(1 + x) / math.log10(1 + cap))
+
+
+def _age_days(item: Item) -> float:
+    if item.created_at is None:
+        return 30.0  # assunzione prudente quando la data manca
+    return max((utcnow() - item.created_at).total_seconds() / 86400.0, 0.5)
+
+
+def _absolute_engagement(item: Item) -> float:
+    e = item.engagement_json or {}
+    if item.source == "hn":
+        return float(e.get("score", 0) + e.get("comments", 0))
+    if item.source == "github":
+        return float(e.get("stars", 0) + 2 * e.get("forks", 0))
+    return float(sum(v for v in e.values() if isinstance(v, (int, float))))
+
+
+def _velocity(item: Item) -> float:
+    """Engagement per unità di tempo: quanto *sta* crescendo, non quanto è grande.
+
+    Su GitHub dividiamo per l'età del repo (stelle/giorno). Su HN e RSS no: la
+    front page è per costruzione fresca, quindi l'engagement grezzo è già di
+    fatto una misura di velocità.
+    """
+    absolute = _absolute_engagement(item)
+    if item.source == "github":
+        return absolute / _age_days(item)
+    return absolute
+
+
+def _heat(item: Item) -> float:
+    cap = _VELOCITY_CAP.get(item.source, _DEFAULT_VELOCITY_CAP)
+    return _saturate(_velocity(item), cap)
+
+
+def _saturation(item: Item) -> float:
+    """Quanto la cosa è già affermata: alta = mercato chiuso, non opportunità."""
+    cap = _SATURATION_CAP.get(item.source, _DEFAULT_SATURATION_CAP)
+    popularity = _saturate(_absolute_engagement(item), cap)
+    if item.source != "github":
+        return popularity
+    # Un repo è "maturo" se è popolare *e* vecchio: 2 anni satura il fattore età.
+    maturity = _clamp(_age_days(item) / 730.0)
+    return _clamp(popularity * (0.4 + 0.6 * maturity))
+
+
+def _fit(item: Item, keywords: list[str]) -> float:
+    """Rilevanza per keyword con match su *parole intere* (no sottostringhe).
+
+    Una keyword conta come matchata se una qualsiasi delle sue parole compare
+    come token intero nel testo (così 'ai' non matcha 'certain').
+    """
+    if not keywords:
+        return 0.5
+    haystack = f"{item.title} {item.text or ''}".lower()
+    tokens = set(_WORD_RE.findall(haystack))
+    matched = sum(
+        1
+        for kw in keywords
+        if any(word in tokens for word in _WORD_RE.findall(kw.lower()))
+    )
+    denom = min(len(keywords), 3)
+    return min(1.0, matched / denom)
+
+
+def _recency(item: Item) -> float:
+    if item.created_at is None:
+        return 0.4
+    return _clamp(1 - _age_days(item) / 365.0)  # decadimento lineare su un anno
+
+
+def score_item(item: Item, insight: IdeaInsight, config: AppConfig) -> ScoreResult:
+    heat = _heat(item)
+    saturation = _saturation(item)
+
+    credibility = _clamp(
+        _SOURCE_CREDIBILITY.get(item.source, 0.30)
+        + 0.30 * heat
+        + (0.10 if item.author else 0.0)
+    )
+
+    feasibility = _DIFFICULTY_FEASIBILITY.get(insight.difficulty, 0.5)
+
+    # Opportunità = è recente E non è già un mercato chiuso.
+    opportunity = _clamp(0.5 * _recency(item) + 0.5 * (1.0 - saturation))
+
+    fit = _fit(item, config.keywords)
+
+    quality_values = {
+        "heat": heat,
+        "credibility": credibility,
+        "feasibility": feasibility,
+        "opportunity": opportunity,
+    }
+    weights = config.scoring.normalized_weights()
+    q_weights = {m: weights.get(m, 0.0) for m in _QUALITY_METRICS}
+    total_w = sum(q_weights.values()) or 1.0
+    quality = sum(q_weights[m] * quality_values[m] for m in _QUALITY_METRICS) / total_w
+
+    floor = config.scoring.relevance_floor
+    relevance = floor + (1 - floor) * fit
+    composite = _clamp(quality * relevance)
+
+    status = (
+        IdeaStatus.PROPOSED
+        if composite >= config.scoring.threshold
+        else IdeaStatus.PROCESSED
+    )
+    return ScoreResult(
+        heat=heat,
+        credibility=credibility,
+        feasibility=feasibility,
+        opportunity=opportunity,
+        fit=fit,
+        composite=composite,
+        status=status,
+    )
