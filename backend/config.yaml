@@ -79,7 +79,10 @@ clustering:
   # più sensato di 0.82. Alzala se vedi fusioni sbagliate, abbassala se doppioni.
   idea_threshold: 0.75
   # Similarità minima (più permissiva) per mettere due idee nello stesso topic.
-  topic_threshold: 0.62
+  # 0.70 scelto con `recluster --sweep` (17/07, 58 idee): a 0.62 il topic più
+  # grosso era un minestrone da 33 idee, a 0.74 quasi tutto singleton. Da
+  # ri-sweepare quando le idee saranno ~il doppio.
+  topic_threshold: 0.70
   # Nomina i topic con l'LLM invece di ereditare il titolo della prima idea.
   llm_topic_labels: true
 
