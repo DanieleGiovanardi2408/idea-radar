@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import inspect
 from sqlmodel import Session, create_engine, select
 
-from app.db import init_db, upsert_item
+from app.db import init_db, make_engine, upsert_item
 from app.models import Difficulty, Idea, Item, Run, Score, utcnow
 
 
@@ -151,3 +151,11 @@ def test_score_difficulty_is_nullable(session: Session) -> None:
     session.commit()
 
     assert session.exec(select(Score)).one().difficulty is None
+
+
+def test_make_engine_enables_wal_and_busy_timeout(tmp_path: Path) -> None:
+    """Coi run schedulati si scrive mentre la UI legge: WAL non è un vezzo."""
+    engine = make_engine(tmp_path / "wal.db")
+    with engine.connect() as conn:
+        assert conn.exec_driver_sql("PRAGMA journal_mode").scalar() == "wal"
+        assert conn.exec_driver_sql("PRAGMA busy_timeout").scalar() == 30000

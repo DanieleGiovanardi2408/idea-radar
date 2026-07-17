@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from sqlalchemy import Engine
+from sqlalchemy import Engine, event
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models import Item
@@ -15,11 +15,33 @@ DB_PATH = DATA_DIR / "idea_radar.db"
 _engine: Engine | None = None
 
 
+def _sqlite_on_connect(dbapi_connection, _record) -> None:
+    """PRAGMA di concorrenza, applicati a ogni nuova connessione.
+
+    Coi run schedulati la pipeline scrive MENTRE l'API/UI legge: WAL lascia
+    procedere i lettori durante uno scrittore, e il busy_timeout assorbe i
+    brevi lock residui invece di esplodere subito con "database is locked".
+    (WAL crea i file di servizio ``-wal``/``-shm`` accanto al DB, già coperti
+    dal .gitignore di ``data/``.)
+    """
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=30000")
+    cursor.close()
+
+
+def make_engine(db_path: Path) -> Engine:
+    """Engine SQLite con i PRAGMA già agganciati (riusabile nei test)."""
+    engine = create_engine(f"sqlite:///{db_path}")
+    event.listens_for(engine, "connect")(_sqlite_on_connect)
+    return engine
+
+
 def get_engine() -> Engine:
     global _engine
     if _engine is None:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        _engine = create_engine(f"sqlite:///{DB_PATH}")
+        _engine = make_engine(DB_PATH)
     return _engine
 
 
