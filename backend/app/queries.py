@@ -4,7 +4,7 @@ from collections import defaultdict
 
 from sqlmodel import Session, select
 
-from app.models import Idea, IdeaStatus, Item, Run, Score, Topic, TopicStat
+from app.models import Idea, IdeaStatus, Item, Run, RunStatus, Score, Topic, TopicStat
 
 
 def latest_scores(session: Session) -> dict[int, Score]:
@@ -77,8 +77,16 @@ def topic_trends(session: Session, max_runs: int = 12) -> list[dict]:
 
     Un trend esiste solo con almeno due run: con un run solo le serie hanno un
     punto e la delta è nulla, per costruzione.
+
+    Contano SOLO i run ``DONE``: un run fallito o ancora in corso non ha i suoi
+    ``TopicStat`` e produrrebbe un cratere a zero in tutte le serie. Coi run
+    schedulati — che falliranno ogni tanto senza nessuno a guardare — il caso
+    passa da teorico a quotidiano.
     """
-    runs = sorted(session.exec(select(Run)).all(), key=lambda r: r.id or 0)[-max_runs:]
+    runs = sorted(
+        session.exec(select(Run).where(Run.status == RunStatus.DONE)).all(),
+        key=lambda r: r.id or 0,
+    )[-max_runs:]
     run_ids = [r.id for r in runs]
     run_by_id = {r.id: r for r in runs}
 
