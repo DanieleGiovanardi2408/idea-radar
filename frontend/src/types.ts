@@ -92,6 +92,7 @@ export type StatsOut = {
   n_ideas: number
   n_topics: number
   n_proposed: number
+  n_archived: number
   n_runs: number
   items_by_source: Record<string, number>
   last_run: RunOut | null

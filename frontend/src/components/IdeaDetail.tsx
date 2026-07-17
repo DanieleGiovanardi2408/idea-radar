@@ -1,12 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { api } from '../api'
 import type { IdeaDetailOut } from '../types'
 import {
+  AreaSpark,
   Badge,
   DIFFICULTY_STYLES,
+  IconArrowUpRight,
+  IconX,
   MetricBar,
   ScoreRing,
-  Sparkline,
   STATUS_STYLES,
 } from './ui'
 
@@ -18,6 +20,14 @@ const METRIC_HINTS: Record<string, string> = {
   Fit: 'Aderenza alle tue keyword. Moltiplica il punteggio: fuori tema = abbattuta.',
 }
 
+const METRICS: { label: string; key: keyof IdeaDetailOut }[] = [
+  { label: 'Heat', key: 'heat' },
+  { label: 'Credibility', key: 'credibility' },
+  { label: 'Feasibility', key: 'feasibility' },
+  { label: 'Opportunity', key: 'opportunity' },
+  { label: 'Fit', key: 'fit' },
+]
+
 function formatDate(value: string | null): string {
   if (!value) return '—'
   return new Date(value).toLocaleDateString('it-IT', {
@@ -25,6 +35,24 @@ function formatDate(value: string | null): string {
     month: 'short',
     year: 'numeric',
   })
+}
+
+/** Sezione con etichetta HUD e ingresso scaglionato. */
+function Section({
+  label,
+  delayMs = 0,
+  children,
+}: {
+  label: string
+  delayMs?: number
+  children: ReactNode
+}) {
+  return (
+    <section className="stagger" style={{ animationDelay: `${delayMs}ms` }}>
+      <h3 className="hud text-slate-500">{label}</h3>
+      <div className="mt-2.5">{children}</div>
+    </section>
+  )
 }
 
 export function IdeaDetail({
@@ -38,12 +66,16 @@ export function IdeaDetail({
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    let alive = true
     setIdea(null)
     setError(null)
     api
       .idea(ideaId)
-      .then(setIdea)
-      .catch(() => setError('Impossibile caricare il dettaglio.'))
+      .then((d) => alive && setIdea(d))
+      .catch(() => alive && setError('Impossibile caricare il dettaglio.'))
+    return () => {
+      alive = false
+    }
   }, [ideaId])
 
   useEffect(() => {
@@ -52,18 +84,40 @@ export function IdeaDetail({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  const history = idea?.history ?? []
+  const sparkTone =
+    history.length > 1
+      ? history[history.length - 1].composite >= history[0].composite
+        ? 'up'
+        : 'down'
+      : 'accent'
+
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
+    <div
+      className="fixed inset-0 z-50 flex justify-end"
+      role="dialog"
+      aria-modal="true"
+      aria-label={idea ? idea.label : 'Dettaglio idea'}
+      data-testid="idea-detail"
+    >
       <div
-        className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+        className="overlay-enter absolute inset-0 bg-abyss/75 backdrop-blur-sm"
         onClick={onClose}
       />
-      <aside className="relative flex h-full w-full max-w-xl flex-col overflow-y-auto border-l border-slate-800 bg-slate-950 shadow-2xl">
-        <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-800 bg-slate-950/95 p-5 backdrop-blur">
+
+      <aside className="drawer-enter relative ml-auto flex h-full w-full max-w-xl flex-col overflow-y-auto border-l border-white/10 bg-deep/95 shadow-[-24px_0_60px_-24px_rgba(0,0,0,0.9)] backdrop-blur-xl">
+        {/* accento fosforo sul bordo del quadrante */}
+        <span className="pointer-events-none absolute inset-y-0 left-0 w-px bg-gradient-to-b from-transparent via-phosphor/50 to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-[radial-gradient(420px_180px_at_15%_0%,rgba(46,232,162,0.08),transparent)]" />
+
+        <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-white/10 bg-deep/85 p-5 backdrop-blur-xl">
           <div className="min-w-0">
+            <span className="hud text-phosphor/70">dossier segnale</span>
             {idea ? (
               <>
-                <h2 className="text-lg font-semibold text-slate-100">{idea.label}</h2>
+                <h2 className="mt-1 font-display text-lg font-semibold tracking-tight text-slate-50">
+                  {idea.label}
+                </h2>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <Badge className={STATUS_STYLES[idea.status] ?? STATUS_STYLES.processed}>
                     {idea.status}
@@ -74,106 +128,109 @@ export function IdeaDetail({
                     </Badge>
                   )}
                   {idea.topic_label && (
-                    <Badge className="bg-sky-500/10 text-sky-300 ring-sky-500/30">
+                    <Badge className="bg-white/[0.04] text-slate-300 ring-white/10">
                       {idea.topic_label}
                     </Badge>
                   )}
                 </div>
               </>
             ) : (
-              <h2 className="text-lg font-semibold text-slate-500">Caricamento…</h2>
+              <h2 className="mt-1 font-display text-lg font-semibold text-slate-500">
+                {error ? 'Segnale non raggiungibile' : 'Sintonizzazione…'}
+              </h2>
             )}
           </div>
           <button
             onClick={onClose}
-            className="shrink-0 rounded-lg p-1.5 text-slate-500 hover:bg-slate-800 hover:text-slate-200"
+            className="glass glass-hover shrink-0 rounded-xl p-2 text-slate-400 hover:text-phosphor"
             aria-label="Chiudi"
           >
-            ✕
+            <IconX />
           </button>
         </header>
 
-        {error && <p className="p-5 text-sm text-rose-400">{error}</p>}
+        {error && <p className="p-5 text-sm text-flare">{error}</p>}
+
+        {!idea && !error && (
+          <div className="space-y-4 p-5">
+            <div className="flex items-center gap-4">
+              <div className="size-16 shrink-0 rounded-full bg-white/[0.05]" />
+              <div className="flex-1 space-y-2.5">
+                <div className="h-3 w-24 rounded bg-white/[0.06]" />
+                <div className="h-3 w-4/5 rounded bg-white/[0.04]" />
+                <div className="h-3 w-2/3 rounded bg-white/[0.04]" />
+              </div>
+            </div>
+            <div className="progress-sheen h-1 rounded-full bg-white/[0.05]" />
+          </div>
+        )}
 
         {idea && (
-          <div className="space-y-6 p-5">
-            <section className="flex items-start gap-4">
-              <ScoreRing value={idea.composite} size={64} />
+          <div className="space-y-7 p-5">
+            <section
+              className="stagger flex items-start gap-4"
+              style={{ animationDelay: '0ms' }}
+            >
+              <ScoreRing value={idea.composite} size={68} />
               <div className="min-w-0 flex-1">
-                <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Perché
-                </h3>
-                <p className="mt-1 text-sm leading-relaxed text-slate-300">
+                <h3 className="hud text-slate-500">Perché</h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-slate-300">
                   {idea.why_text || 'Nessuna motivazione generata.'}
                 </p>
               </div>
             </section>
 
             {idea.summary && (
-              <section>
-                <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Sintesi
-                </h3>
-                <p className="mt-1.5 text-sm leading-relaxed text-slate-400">
-                  {idea.summary}
-                </p>
-              </section>
+              <Section label="Sintesi" delayMs={60}>
+                <p className="text-sm leading-relaxed text-slate-400">{idea.summary}</p>
+              </Section>
             )}
 
-            <section>
-              <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                KPI
-              </h3>
-              <div className="mt-2.5 grid gap-2">
-                <MetricBar label="Heat" value={idea.heat} hint={METRIC_HINTS.Heat} />
-                <MetricBar
-                  label="Credibility"
-                  value={idea.credibility}
-                  hint={METRIC_HINTS.Credibility}
-                />
-                <MetricBar
-                  label="Feasibility"
-                  value={idea.feasibility}
-                  hint={METRIC_HINTS.Feasibility}
-                />
-                <MetricBar
-                  label="Opportunity"
-                  value={idea.opportunity}
-                  hint={METRIC_HINTS.Opportunity}
-                />
-                <MetricBar label="Fit" value={idea.fit} hint={METRIC_HINTS.Fit} />
+            <Section label="KPI" delayMs={120}>
+              <div className="grid gap-2.5">
+                {METRICS.map((m, i) => (
+                  <MetricBar
+                    key={m.label}
+                    label={m.label}
+                    value={idea[m.key] as number | null}
+                    hint={METRIC_HINTS[m.label]}
+                    delayMs={160 + i * 70}
+                  />
+                ))}
               </div>
-            </section>
+            </Section>
 
-            {idea.history.length > 1 && (
-              <section>
-                <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Andamento del punteggio
-                </h3>
-                <div className="mt-2 flex items-center gap-3 text-sky-400">
-                  <Sparkline values={idea.history.map((h) => h.composite)} />
-                  <span className="text-xs text-slate-500">
-                    su {idea.history.length} run
+            {history.length > 1 && (
+              <Section label="Andamento del punteggio" delayMs={180}>
+                <div className="flex items-end gap-4">
+                  <AreaSpark
+                    values={history.map((h) => h.composite)}
+                    tone={sparkTone}
+                    width={300}
+                    height={64}
+                    format={(v, i) =>
+                      `${Math.round(v * 100)} · run #${history[i].run_id}`
+                    }
+                  />
+                  <span className="pb-1 text-xs text-slate-500">
+                    su {history.length} run
                   </span>
                 </div>
-              </section>
+              </Section>
             )}
 
-            <section>
-              <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Segnali ({idea.items.length})
-              </h3>
-              <ul className="mt-2.5 space-y-2">
+            <Section label={`Segnali (${idea.items.length})`} delayMs={220}>
+              <ul className="grid gap-2">
                 {idea.items.map((item, i) => (
                   <li
                     key={i}
-                    className="rounded-xl border border-slate-800/80 bg-slate-900/40 p-3"
+                    className="rounded-xl bg-white/[0.03] p-3 ring-1 ring-white/[0.06] transition-colors hover:ring-white/10"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="truncate text-sm text-slate-200">{item.title}</p>
                         <p className="mt-0.5 text-xs text-slate-500">
-                          {item.source}
+                          <span className="text-slate-400">{item.source}</span>
                           {item.author && ` · ${item.author}`}
                           {item.created_at && ` · ${formatDate(item.created_at)}`}
                         </p>
@@ -183,9 +240,10 @@ export function IdeaDetail({
                           href={item.url}
                           target="_blank"
                           rel="noreferrer"
-                          className="shrink-0 rounded-lg bg-slate-800 px-2.5 py-1 text-xs text-sky-300 hover:bg-slate-700"
+                          className="glass glass-hover inline-flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium text-phosphor"
                         >
-                          Apri ↗
+                          Apri
+                          <IconArrowUpRight />
                         </a>
                       )}
                     </div>
@@ -194,9 +252,10 @@ export function IdeaDetail({
                         {Object.entries(item.engagement).map(([k, v]) => (
                           <Badge
                             key={k}
-                            className="bg-slate-800/60 text-slate-400 ring-slate-700/50"
+                            className="bg-white/[0.03] text-slate-400 ring-white/[0.07]"
                           >
-                            {k}: {v}
+                            <span className="text-slate-500">{k}</span>{' '}
+                            <span className="font-display tabular-nums">{v}</span>
                           </Badge>
                         ))}
                       </div>
@@ -204,11 +263,11 @@ export function IdeaDetail({
                   </li>
                 ))}
               </ul>
-            </section>
+            </Section>
 
-            <footer className="border-t border-slate-800 pt-4 text-xs text-slate-600">
-              Vista la prima volta il {formatDate(idea.first_seen)} · ultima volta il{' '}
-              {formatDate(idea.last_seen)}
+            <footer className="hud flex items-center justify-between border-t border-white/[0.07] pt-4 text-slate-600">
+              <span>primo contatto {formatDate(idea.first_seen)}</span>
+              <span>ultimo {formatDate(idea.last_seen)}</span>
             </footer>
           </div>
         )}
