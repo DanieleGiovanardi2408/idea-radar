@@ -144,7 +144,20 @@ def test_runs_endpoints(client: TestClient, session: Session) -> None:
 def test_trigger_run_is_async(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     called: list[bool] = []
     monkeypatch.setattr("app.api.execute_run", lambda: called.append(True))
+    # Il lock vero è condiviso con CLI/scheduler: qui va isolato, altrimenti
+    # un run reale in corso durante pytest farebbe fallire il test a caso.
+    monkeypatch.setattr("app.api.run_lock_busy", lambda: False)
     resp = client.post("/runs")
     assert resp.status_code == 202
     assert resp.json()["started"] is True
     assert called == [True]  # BackgroundTasks lo esegue dopo la risposta
+
+
+def test_trigger_run_declines_when_another_process_runs(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Il lock su file copre anche i run partiti da CLI o scheduler."""
+    monkeypatch.setattr("app.api.run_lock_busy", lambda: True)
+    resp = client.post("/runs")
+    assert resp.status_code == 202
+    assert resp.json()["started"] is False

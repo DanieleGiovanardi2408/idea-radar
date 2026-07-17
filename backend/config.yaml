@@ -71,3 +71,18 @@ clustering:
   topic_threshold: 0.62
   # Nomina i topic con l'LLM invece di ereditare il titolo della prima idea.
   llm_topic_labels: true
+
+# Run automatici: `idea-radar schedule install` registra un LaunchAgent che
+# lancia `idea-radar run --scheduled` al login e ogni mezz'ora. Il run vero
+# parte solo se passa le guardie qui sotto: gli altri tick sono "salti" da
+# ~1 secondo, annotati (col motivo) nel log data/logs/scheduled.log.
+scheduling:
+  # Età minima (ore) dell'ultimo run completato perché un run schedulato
+  # lavori: è la cadenza EFFETTIVA dei run automatici a Mac sveglio.
+  # Si cambia qui, senza reinstallare il LaunchAgent.
+  min_interval_hours: 4
+  # true = se Ollama è spento o mancano i modelli, il run schedulato salta e
+  # ritenta al tick successivo, invece di girare degradato (un run degradato
+  # crea idee-singleton che non si ri-aggregano mai più). I run manuali NON
+  # sono toccati da questa policy.
+  require_ollama: true

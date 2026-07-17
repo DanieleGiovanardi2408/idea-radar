@@ -86,6 +86,9 @@ the Trend view is empty by construction: it needs at least two.)
   crashes a run; RSS fetching is polite (honest User-Agent, throttling, `Retry-After`).
 - **Cost-aware LLM use** — insights are cached per idea (repeat runs only pay for
   new content) and clearly off-topic items skip the model entirely (fit-gate).
+- **Hands-free trend accumulation** — a launchd agent runs the pipeline every few
+  hours while the Mac is awake, with catch-up after sleep/reboot, a cross-process
+  lock, and an Ollama preflight so unattended runs never degrade the data.
 - **Four views** — Radar (ranked ideas), Topic (grouped by theme), Trend (what's
   moving between runs), Monitor (live pipeline progress).
 
@@ -152,6 +155,37 @@ uv run idea-radar stats       # ingestion funnel
 uv run pytest                 # tests
 ```
 
+### Scheduled runs (macOS)
+
+```bash
+cd backend
+uv run idea-radar schedule install    # register the launchd agent
+uv run idea-radar schedule status     # loaded? last exit code? recent runs
+uv run idea-radar schedule uninstall  # remove it
+```
+
+The agent is deliberately dumb: it fires `idea-radar run --scheduled` at login
+and every 30 minutes, and **all the policy lives in the CLI**, where it is
+tested. A real run only starts when the last completed run is older than
+`scheduling.min_interval_hours` (config.yaml, default 4); every other tick is a
+~1s skip, logged with its reason to `backend/data/logs/scheduled.log`. On a
+laptop this behaves like anacron: ticks missed while asleep are coalesced on
+wake, `RunAtLoad` covers reboots, and changing the cadence in config.yaml
+requires no reinstall (re-run `schedule install` only if you move the repo or
+uv). Exit codes are meaningful — 0 ok/skip, 1 failed run, 3 Ollama not ready —
+and `schedule status` translates them.
+
+Unattended runs are stricter than manual ones, on purpose:
+
+- If Ollama is down or a model is missing, the run is **skipped** (and retried
+  at the next tick) instead of running degraded: items ingested without
+  embeddings become permanent singleton ideas (`scheduling.require_ollama`).
+- A cross-process file lock (`data/.run.lock`) guarantees a scheduled run, a
+  manual run and the API never write to SQLite at the same time.
+- LaunchAgents only run while you are logged in; with the Mac off, nothing
+  runs. RSS and GitHub mostly self-heal after a gap — what is lost is the HN
+  front page of those hours.
+
 ---
 
 ## Configuration
@@ -186,9 +220,12 @@ backend/
     clustering.py  # items → ideas, ideas → topics
     scoring.py     # metrics and composite
     llm.py         # insights via Ollama
+    scheduling.py  # unattended-run policy: staleness gate + Ollama preflight
+    schedule_launchd.py  # launchd agent: install / uninstall / status
+    runlock.py     # cross-process run lock (CLI, API, scheduler)
     queries.py     # shared reads for API/CLI
     models.py      # SQLModel
-  config.yaml      # sources, keywords, scoring, clustering
+  config.yaml      # sources, keywords, scoring, clustering, scheduling
   tests/
 frontend/
   src/
@@ -217,11 +254,15 @@ Recently shipped:
 - [x] Consistent idea status — an idea's status/summary come from its best-scoring item.
 - [x] `recluster` command — re-groups ideas into topics from cached embeddings in
       seconds, for fast `topic_threshold` tuning without a full run.
+- [x] Scheduled runs — dumb launchd agent + smart CLI gate (`run --scheduled`):
+      staleness check, Ollama preflight, cross-process lock, SQLite in WAL.
+      Trends now accumulate on their own (`idea-radar schedule install`).
 
 Next:
 
 - [ ] Topic-level tuning (raise `topic_threshold` for finer, less catch-all themes).
-- [ ] Scheduled/automated runs so trends accumulate on their own.
+- [ ] HN backfill source via the Algolia API (time-window queries heal the gaps
+      left while the Mac is off) — first candidate of the new connectors.
 - [ ] Idea lifecycle — archive or decay stale ideas so the radar stays fresh.
 - [ ] Configurable, smaller insight model for faster runs on modest hardware.
 - [ ] More source connectors behind the same interface.

@@ -34,3 +34,25 @@ scoring:
     assert cfg.scoring.normalized_weights()["heat"] == 0.5
     # La fonte disabilitata non compare tra quelle attive.
     assert [s.name for s in cfg.enabled_sources()] == ["hn"]
+    # Senza blocco `scheduling:` valgono i default (retrocompatibile).
+    assert cfg.scheduling.min_interval_hours == 4.0
+    assert cfg.scheduling.require_ollama is True
+
+
+def test_scheduling_block_overrides_defaults(tmp_path: Path) -> None:
+    p = tmp_path / "config.yaml"
+    p.write_text(
+        """
+sources: []
+keywords: ["ai"]
+scoring:
+  weights: {heat: 1}
+scheduling:
+  min_interval_hours: 12
+  require_ollama: false
+""",
+        encoding="utf-8",
+    )
+    cfg = load_config(p)
+    assert cfg.scheduling.min_interval_hours == 12
+    assert cfg.scheduling.require_ollama is False

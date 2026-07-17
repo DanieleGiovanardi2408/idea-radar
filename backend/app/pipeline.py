@@ -16,6 +16,7 @@ from app.db import get_session, init_db, upsert_item
 from app.embeddings import OllamaEmbedder, embed_item
 from app.llm import IdeaInsight, OllamaClient, generate_insight, heuristic_insight
 from app.models import Idea, Item, Run, RunStatus, Score, TopicStat, utcnow
+from app.runlock import run_lock
 from app.scoring import keyword_fit, score_item
 from app.sources import Source, create_source
 
@@ -278,11 +279,16 @@ def run_pipeline(
 def execute_run(
     on_progress: Callable[[str], None] | None = None,
 ) -> dict[str, int]:
-    """Wiring di default (DB, config, settings) usato da CLI e API."""
+    """Wiring di default (DB, config, settings) usato da CLI e API.
+
+    Tiene il lock cross-process per tutta la durata: se un altro processo
+    (CLI, API o run schedulato) sta già lavorando alza ``RunLockBusy`` subito,
+    invece di scrivere su SQLite in parallelo.
+    """
     init_db()
     config = get_config()
     settings = get_settings()
-    with get_session() as session:
+    with run_lock(), get_session() as session:
         run = run_pipeline(session, config, settings, on_progress=on_progress)
         return {
             "run_id": run.id,
@@ -337,9 +343,13 @@ def recluster_topics(
 
 
 def execute_recluster() -> dict[str, int]:
-    """Wiring di default per il comando CLI ``recluster``."""
+    """Wiring di default per il comando CLI ``recluster``.
+
+    Stesso lock dei run: riscrive topic e ``TopicStat``, e farlo mentre un run
+    è in corso sarebbe una corsa sugli stessi dati.
+    """
     init_db()
     config = get_config()
     settings = get_settings()
-    with get_session() as session:
+    with run_lock(), get_session() as session:
         return recluster_topics(session, config, settings)

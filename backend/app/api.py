@@ -20,6 +20,7 @@ from app.queries import (
     topic_trends,
     topics_overview,
 )
+from app.runlock import RunLockBusy, run_lock_busy
 
 logger = logging.getLogger(__name__)
 
@@ -308,6 +309,10 @@ def _background_run() -> None:
         return
     try:
         execute_run()
+    except RunLockBusy:
+        # Il lock su file è cross-process: qui l'ha preso la CLI o lo
+        # scheduler. Non è un errore, solo un doppione evitato.
+        logger.info("Run già in corso in un altro processo: ignoro la richiesta.")
     except Exception:
         logger.exception("Run in background fallito")
     finally:
@@ -319,7 +324,7 @@ def trigger_run(
     background_tasks: BackgroundTasks, session: Session = Depends(get_db)
 ) -> RunStarted:
     """Avvia un run in background e torna subito: il progresso si legge da /runs."""
-    if _run_lock.locked():
+    if _run_lock.locked() or run_lock_busy():
         return RunStarted(started=False, detail="Un run è già in corso.")
     background_tasks.add_task(_background_run)
     return RunStarted(started=True, detail="Run avviato.")

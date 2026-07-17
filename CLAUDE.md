@@ -31,3 +31,4 @@ frontend/
 - La configurazione runtime va in `app/config.py` (env) o `config.yaml` (comportamento); niente valori hardcoded.
 - In dev il frontend raggiunge il backend tramite il proxy Vite (`/health` → `localhost:8000`, override con `BACKEND_URL`); non introdurre CORS finché non serve.
 - Ogni endpoint nuovo ha un test in `backend/tests/`.
+- Run automatici: launchd è SOLO il trigger (`idea-radar schedule install`); ogni policy — cadenza (`scheduling.*` in config.yaml), preflight Ollama, lock cross-process — vive in `app/scheduling.py` / `app/runlock.py` ed è coperta da test. Log dei tick in `backend/data/logs/scheduled.log`, mai committato (`data/` è già ignorata).

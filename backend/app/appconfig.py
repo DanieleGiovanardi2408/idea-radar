@@ -57,11 +57,25 @@ class ScoringConfig(BaseModel):
         return {k: w / total for k, w in self.weights.items()}
 
 
+class SchedulingConfig(BaseModel):
+    """Politiche dei run non presidiati (``idea-radar run --scheduled``)."""
+
+    # Età minima (ore) dell'ultimo run DONE perché un run schedulato lavori:
+    # sotto la soglia il tick esce subito ("salto"). È la cadenza effettiva
+    # dei run automatici quando il Mac è sveglio.
+    min_interval_hours: float = 4.0
+    # Se True, con Ollama giù o senza i modelli il run schedulato si salta
+    # (ritenterà al tick dopo) invece di girare degradato: gli item entrati
+    # senza embedding diventano idee-singleton permanenti.
+    require_ollama: bool = True
+
+
 class AppConfig(BaseModel):
     sources: list[SourceConfig] = Field(default_factory=list)
     keywords: list[str] = Field(default_factory=list)
     scoring: ScoringConfig
     clustering: ClusteringConfig = Field(default_factory=ClusteringConfig)
+    scheduling: SchedulingConfig = Field(default_factory=SchedulingConfig)
 
     def enabled_sources(self) -> list[SourceConfig]:
         return [s for s in self.sources if s.enabled]
