@@ -28,10 +28,12 @@ def create_source(
     # Import locale per evitare cicli di import.
     from app.sources.github import GitHubSource
     from app.sources.hackernews import HackerNewsSource
+    from app.sources.hn_algolia import HnAlgoliaSource
     from app.sources.rss import RssSource
 
     registry: dict[str, type] = {
         "hn": HackerNewsSource,
+        "hn_algolia": HnAlgoliaSource,
         "github": GitHubSource,
         "rss": RssSource,
     }

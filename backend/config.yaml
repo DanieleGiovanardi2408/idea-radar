@@ -8,6 +8,17 @@ sources:
     type: hn
     limit: 30        # quante top-story scaricare
     enabled: true
+  # Backfill HN via Algolia: colma i buchi a Mac spento con una finestra
+  # fissa di 48h a ogni run e, ripassando sulle stesse storie per due giorni,
+  # regala a item_stats osservazioni ripetute di engagement (il carburante
+  # della futura heat "a delta"). Stessa source "hn" delle top-story:
+  # i doppioni si fondono da soli per id.
+  - name: hn-backfill
+    type: hn_algolia
+    limit: 30        # tetto di item per run, ordinati per punti
+    enabled: true
+    lookback_hours: 48
+    min_points: 5    # sotto questi punti una storia è rumore
   - name: github
     type: github
     limit: 30        # quanti repo dalla Search API
@@ -86,3 +97,11 @@ scheduling:
   # crea idee-singleton che non si ri-aggregano mai più). I run manuali NON
   # sono toccati da questa policy.
   require_ollama: true
+
+# Ciclo di vita delle idee: l'archivio tiene il Radar fresco.
+lifecycle:
+  # Giorni senza segnali nuovi dopo i quali un'idea si archivia (in coda a
+  # ogni run). 0 = disattivato. Un'idea archiviata sparisce da Radar e Topic
+  # ma resta interrogabile (status=archived) e torna in vita da sola se un
+  # item nuovo le appartiene.
+  archive_after_days: 14

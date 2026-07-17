@@ -257,13 +257,20 @@ Recently shipped:
 - [x] Scheduled runs — dumb launchd agent + smart CLI gate (`run --scheduled`):
       staleness check, Ollama preflight, cross-process lock, SQLite in WAL.
       Trends now accumulate on their own (`idea-radar schedule install`).
+- [x] Engagement history — every run snapshots per-item engagement into
+      `item_stats`: the raw material for delta-based heat.
+- [x] Sweep-based topic tuning — `recluster --sweep 0.62,0.68,0.74` previews
+      thresholds with zero writes; `--threshold` applies one on the fly.
+- [x] Idea lifecycle — ideas with no fresh signals for 14 days are archived at
+      the end of each run, and revived automatically when a new item lands.
+- [x] HN backfill source (Algolia) — fixed 48h time-window queries heal the
+      gaps left while the Mac was off, and repeated passes over the same
+      stories feed `item_stats` with the observations delta-heat will need.
 
 Next:
 
-- [ ] Topic-level tuning (raise `topic_threshold` for finer, less catch-all themes).
-- [ ] HN backfill source via the Algolia API (time-window queries heal the gaps
-      left while the Mac is off) — first candidate of the new connectors.
-- [ ] Idea lifecycle — archive or decay stale ideas so the radar stays fresh.
+- [ ] Delta-based heat — replace engagement/age with velocity measured between
+      consecutive `item_stats` observations.
 - [ ] Configurable, smaller insight model for faster runs on modest hardware.
 - [ ] More source connectors behind the same interface.
 
