@@ -23,12 +23,20 @@ def top_ideas(
     status: IdeaStatus | None = None,
     topic_id: int | None = None,
 ) -> list[tuple[Idea, Score | None]]:
-    """Idee ordinate per composite decrescente, con il loro ultimo score."""
+    """Idee ordinate per composite decrescente, con il loro ultimo score.
+
+    Senza filtro esplicito le ARCHIVED restano fuori: il Radar mostra il
+    vivo; le archiviate si chiedono apposta con ``status=ARCHIVED``.
+    """
     latest = latest_scores(session)
     rows = [
         (idea, latest.get(idea.id))
         for idea in session.exec(select(Idea)).all()
-        if (status is None or idea.status == status)
+        if (
+            idea.status != IdeaStatus.ARCHIVED
+            if status is None
+            else idea.status == status
+        )
         and (topic_id is None or idea.topic_id == topic_id)
     ]
     rows.sort(key=lambda r: r[1].composite if r[1] else 0.0, reverse=True)
@@ -46,7 +54,9 @@ def topics_overview(session: Session) -> list[dict]:
     latest = latest_scores(session)
     by_topic: dict[int, list[Idea]] = defaultdict(list)
     for idea in session.exec(select(Idea)).all():
-        if idea.topic_id is not None:
+        # Le archiviate non contano: i topic descrivono ciò che è vivo ora
+        # (la loro storia resta nei TopicStat già scritti).
+        if idea.topic_id is not None and idea.status != IdeaStatus.ARCHIVED:
             by_topic[idea.topic_id].append(idea)
 
     overview: list[dict] = []
@@ -146,6 +156,7 @@ def monitor_stats(session: Session) -> dict:
         "n_ideas": len(ideas),
         "n_topics": len(topics),
         "n_proposed": sum(1 for i in ideas if i.status == IdeaStatus.PROPOSED),
+        "n_archived": sum(1 for i in ideas if i.status == IdeaStatus.ARCHIVED),
         "n_runs": len(runs),
         "items_by_source": dict(by_source),
         "last_run": last_run,

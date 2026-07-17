@@ -141,6 +141,7 @@ class StatsOut(BaseModel):
     n_ideas: int
     n_topics: int
     n_proposed: int
+    n_archived: int = 0
     n_runs: int
     items_by_source: dict[str, int]
     last_run: RunOut | None = None
@@ -227,7 +228,12 @@ def list_ideas(
     rows = [
         _idea_out(idea, latest.get(idea.id))
         for idea in session.exec(select(Idea)).all()
-        if (status is None or idea.status == status)
+        # Default: solo il vivo. Le archiviate si chiedono con ?status=archived.
+        if (
+            idea.status != IdeaStatus.ARCHIVED
+            if status is None
+            else idea.status == status
+        )
         and (topic_id is None or idea.topic_id == topic_id)
     ]
     rows.sort(key=lambda r: r.composite, reverse=True)
@@ -277,6 +283,7 @@ def get_stats(session: Session = Depends(get_db)) -> StatsOut:
         n_ideas=data["n_ideas"],
         n_topics=data["n_topics"],
         n_proposed=data["n_proposed"],
+        n_archived=data["n_archived"],
         n_runs=data["n_runs"],
         items_by_source=data["items_by_source"],
         last_run=_run_out(data["last_run"]) if data["last_run"] else None,

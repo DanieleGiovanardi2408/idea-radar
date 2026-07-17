@@ -95,3 +95,76 @@ def test_recluster_is_idempotent_on_same_threshold(session: Session) -> None:
         session, _config(topic_threshold=0.95), Settings(), ollama=FakeOllama()
     )
     assert result["n_topics"] == before    # stessa soglia => stesso numero di topic
+
+
+def test_threshold_override_beats_config(session: Session) -> None:
+    """`recluster --threshold X` deve vincere sulla soglia di config.yaml."""
+    items = [
+        Item(source="hn", external_id="1", title="ai uno"),
+        Item(source="hn", external_id="2", title="ai due"),
+    ]
+    run_pipeline(
+        session, _config(topic_threshold=0.5), Settings(),
+        sources=[FakeSource(items)], ollama=FakeOllama(), embedder=FakeEmbedder(),
+    )
+    assert len(session.exec(select(Topic)).all()) == 1
+
+    result = recluster_topics(
+        session,
+        _config(topic_threshold=0.5),  # config direbbe "insieme"…
+        Settings(),
+        ollama=FakeOllama(),
+        topic_threshold=0.95,          # …ma l'override li separa
+    )
+    assert result["n_topics"] == 2
+
+
+def test_cli_recluster_sweep_prints_preview(monkeypatch) -> None:
+    """`recluster --sweep` stampa l'anteprima e non tocca il recluster vero."""
+    from contextlib import contextmanager
+
+    from typer.testing import CliRunner
+
+    from app import cli
+
+    @contextmanager
+    def _fake_session():
+        yield None
+
+    monkeypatch.setattr(cli, "init_db", lambda: None)
+    monkeypatch.setattr(cli, "get_session", _fake_session)
+    monkeypatch.setattr(
+        cli,
+        "sweep_topic_thresholds",
+        lambda session, values: [
+            {
+                "threshold": v,
+                "n_topics": 5,
+                "max_size": 4,
+                "n_singleton": 2,
+                "biggest_sample": ["alpha", "beta"],
+            }
+            for v in values
+        ],
+    )
+
+    def _no_recluster(threshold_override=None):
+        raise AssertionError("la sweep non deve eseguire il recluster vero")
+
+    monkeypatch.setattr(cli, "execute_recluster", _no_recluster)
+
+    result = CliRunner().invoke(cli.app, ["recluster", "--sweep", "0.62,0.7"])
+    assert result.exit_code == 0
+    assert "0.62" in result.output and "0.70" in result.output
+    assert "alpha" in result.output
+    assert "senza scritture" in result.output
+
+
+def test_cli_recluster_sweep_rejects_garbage(monkeypatch) -> None:
+    from typer.testing import CliRunner
+
+    from app import cli
+
+    result = CliRunner().invoke(cli.app, ["recluster", "--sweep", "abc"])
+    assert result.exit_code == 2
+    assert "non valido" in result.output

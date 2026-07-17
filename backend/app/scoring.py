@@ -70,7 +70,9 @@ def _age_days(item: Item) -> float:
     return max((utcnow() - item.created_at).total_seconds() / 86400.0, 0.5)
 
 
-def _absolute_engagement(item: Item) -> float:
+def absolute_engagement(item: Item) -> float:
+    """Riduzione scalare dell'engagement, per fonte (pubblica: la usa anche
+    la pipeline per fotografare l'engagement di ogni run in ``ItemStat``)."""
     e = item.engagement_json or {}
     if item.source == "hn":
         return float(e.get("score", 0) + e.get("comments", 0))
@@ -86,7 +88,7 @@ def _velocity(item: Item) -> float:
     front page è per costruzione fresca, quindi l'engagement grezzo è già di
     fatto una misura di velocità.
     """
-    absolute = _absolute_engagement(item)
+    absolute = absolute_engagement(item)
     if item.source == "github":
         return absolute / _age_days(item)
     return absolute
@@ -100,7 +102,7 @@ def _heat(item: Item) -> float:
 def _saturation(item: Item) -> float:
     """Quanto la cosa è già affermata: alta = mercato chiuso, non opportunità."""
     cap = _SATURATION_CAP.get(item.source, _DEFAULT_SATURATION_CAP)
-    popularity = _saturate(_absolute_engagement(item), cap)
+    popularity = _saturate(absolute_engagement(item), cap)
     if item.source != "github":
         return popularity
     # Un repo è "maturo" se è popolare *e* vecchio: 2 anni satura il fattore età.

@@ -15,11 +15,15 @@ CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
 
 class SourceConfig(BaseModel):
     name: str
-    type: str  # "hn" | "github" | "rss"
+    type: str  # "hn" | "hn_algolia" | "github" | "rss"
     limit: int = 30
     enabled: bool = True
     # Solo per type: rss — elenco di feed (riviste, blog, forum).
     feeds: list[str] = Field(default_factory=list)
+    # Solo per type: hn_algolia — finestra di backfill (ore guardate indietro
+    # a ogni run) e punti minimi perché una storia non sia rumore.
+    lookback_hours: float = 48.0
+    min_points: int = 5
 
 
 class ClusteringConfig(BaseModel):
@@ -70,12 +74,22 @@ class SchedulingConfig(BaseModel):
     require_ollama: bool = True
 
 
+class LifecycleConfig(BaseModel):
+    """Ciclo di vita delle idee: l'archivio tiene il radar fresco."""
+
+    # Giorni senza segnali nuovi (last_seen fermo) dopo i quali un'idea viene
+    # archiviata in coda al run. 0 = ciclo di vita disattivato. Il ritorno è
+    # automatico: un item nuovo che cade nell'idea la riporta in vita.
+    archive_after_days: float = 14.0
+
+
 class AppConfig(BaseModel):
     sources: list[SourceConfig] = Field(default_factory=list)
     keywords: list[str] = Field(default_factory=list)
     scoring: ScoringConfig
     clustering: ClusteringConfig = Field(default_factory=ClusteringConfig)
     scheduling: SchedulingConfig = Field(default_factory=SchedulingConfig)
+    lifecycle: LifecycleConfig = Field(default_factory=LifecycleConfig)
 
     def enabled_sources(self) -> list[SourceConfig]:
         return [s for s in self.sources if s.enabled]

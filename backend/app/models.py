@@ -114,6 +114,28 @@ class Score(SQLModel, table=True):
     difficulty: Difficulty | None = None
 
 
+class ItemStat(SQLModel, table=True):
+    """Osservazione dell'engagement di un item in un run.
+
+    ``upsert_item`` SOVRASCRIVE ``engagement_json`` a ogni re-fetch: senza
+    questa tabella la storia (stelle/punti nel tempo) andrebbe persa proprio
+    ora che i run schedulati la producono da soli. È la materia prima della
+    futura heat "a delta": velocità misurata tra osservazioni consecutive,
+    non mediata sull'età dell'item.
+    """
+
+    __tablename__ = "item_stats"
+
+    item_id: int = Field(foreign_key="items.id", primary_key=True)
+    run_id: int = Field(foreign_key="runs.id", primary_key=True)
+    # Engagement grezzo osservato (per fonte: stelle/forks, punti/commenti…).
+    engagement_json: dict | None = Field(default=None, sa_column=Column(JSON))
+    # Riduzione scalare con la STESSA formula dello scoring: i delta si fanno
+    # senza ripetere la riduzione a ogni lettura.
+    engagement: float = 0.0
+    observed_at: datetime = Field(default_factory=utcnow)
+
+
 class TopicStat(SQLModel, table=True):
     """Fotografia di un topic in un run: serve a misurare i trend nel tempo."""
 

@@ -161,3 +161,23 @@ def test_trigger_run_declines_when_another_process_runs(
     resp = client.post("/runs")
     assert resp.status_code == 202
     assert resp.json()["started"] is False
+
+
+def test_ideas_default_hides_archived(client: TestClient, session: Session) -> None:
+    """Il Radar mostra il vivo; le archiviate si chiedono con ?status=archived."""
+    _seed(session)
+    session.add(Idea(label="Spenta", status=IdeaStatus.ARCHIVED))
+    session.commit()
+
+    labels = [row["label"] for row in client.get("/ideas").json()]
+    assert labels == ["Idea A"]
+
+    shown = client.get("/ideas", params={"status": "archived"}).json()
+    assert [row["label"] for row in shown] == ["Spenta"]
+
+
+def test_stats_counts_archived(client: TestClient, session: Session) -> None:
+    _seed(session)
+    session.add(Idea(label="Spenta", status=IdeaStatus.ARCHIVED))
+    session.commit()
+    assert client.get("/stats").json()["n_archived"] == 1

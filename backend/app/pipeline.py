@@ -14,10 +14,11 @@ from app.clustering import assign_ideas_to_topics, attach_item_to_idea
 from app.config import Settings, get_settings
 from app.db import get_session, init_db, upsert_item
 from app.embeddings import OllamaEmbedder, embed_item
+from app.lifecycle import archive_stale_ideas
 from app.llm import IdeaInsight, OllamaClient, generate_insight, heuristic_insight
-from app.models import Idea, Item, Run, RunStatus, Score, TopicStat, utcnow
+from app.models import Idea, Item, ItemStat, Run, RunStatus, Score, TopicStat, utcnow
 from app.runlock import run_lock
-from app.scoring import keyword_fit, score_item
+from app.scoring import absolute_engagement, keyword_fit, score_item
 from app.sources import Source, create_source
 
 logger = logging.getLogger(__name__)
@@ -70,6 +71,18 @@ def _collect(
                 is not None
             )
             stored = upsert_item(session, raw_item)
+            # Fotografa l'engagement di QUESTO run: sull'item l'upsert lo
+            # sovrascrive, qui se ne conserva la storia (base della futura
+            # heat "a delta" tra osservazioni consecutive).
+            if session.get(ItemStat, (stored.id, run.id)) is None:
+                session.add(
+                    ItemStat(
+                        item_id=stored.id,
+                        run_id=run.id,
+                        engagement_json=stored.engagement_json,
+                        engagement=absolute_engagement(stored),
+                    )
+                )
             if not existed:
                 new_here += 1
             collected.append(stored)
@@ -247,6 +260,11 @@ def run_pipeline(
         )
         n_topics = _record_topic_stats(session, run)
 
+        # Ciclo di vita in coda al run: chi non porta segnali da troppo tempo
+        # esce dalle viste vive (e rientra da solo se un item la riattiva).
+        _progress(session, run, phase="archivio idee stantie")
+        archive_stale_ideas(session, config.lifecycle.archive_after_days)
+
         run.finished_at = utcnow()
         run.status = RunStatus.DONE
         run.phase = "completato"
@@ -305,6 +323,7 @@ def recluster_topics(
     settings: Settings,
     *,
     ollama: OllamaClient | None = None,
+    topic_threshold: float | None = None,
 ) -> dict[str, int]:
     """Ricostruisce SOLO i topic (idee→topic) dagli embedding già salvati.
 
@@ -312,6 +331,8 @@ def recluster_topics(
     in pochi secondi e vederne subito l'effetto. Azzera i topic e le loro
     statistiche, riassegna le idee e ri-fotografa i topic per il run più recente.
     L'unica eventuale chiamata LLM è il naming dei topic, se attivo.
+    ``topic_threshold`` (se dato) vince sulla soglia di config.yaml: è il
+    ``--threshold`` della CLI per provare una taratura al volo.
     """
     from app.models import Topic
 
@@ -326,9 +347,14 @@ def recluster_topics(
         session.delete(topic)
     session.commit()
 
+    effective_threshold = (
+        topic_threshold
+        if topic_threshold is not None
+        else config.clustering.topic_threshold
+    )
     assign_ideas_to_topics(
         session,
-        config.clustering.topic_threshold,
+        effective_threshold,
         namer=_topic_namer(config, ollama),
     )
 
@@ -342,14 +368,18 @@ def recluster_topics(
     }
 
 
-def execute_recluster() -> dict[str, int]:
+def execute_recluster(threshold_override: float | None = None) -> dict[str, int]:
     """Wiring di default per il comando CLI ``recluster``.
 
-    Stesso lock dei run: riscrive topic e ``TopicStat``, e farlo mentre un run
-    è in corso sarebbe una corsa sugli stessi dati.
+    ``threshold_override`` (il ``--threshold`` della CLI) prova una
+    ``topic_threshold`` diversa senza editare config.yaml. Stesso lock dei
+    run: riscrive topic e ``TopicStat``, e farlo mentre un run è in corso
+    sarebbe una corsa sugli stessi dati.
     """
     init_db()
     config = get_config()
     settings = get_settings()
     with run_lock(), get_session() as session:
-        return recluster_topics(session, config, settings)
+        return recluster_topics(
+            session, config, settings, topic_threshold=threshold_override
+        )

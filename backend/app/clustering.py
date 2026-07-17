@@ -130,3 +130,57 @@ def assign_ideas_to_topics(
         session.add(topic)
     session.commit()
     return topics
+
+
+def group_indices_by_similarity(
+    vectors: list[Vector], threshold: float
+) -> list[list[int]]:
+    """Raggruppamento greedy IDENTICO a ``assign_ideas_to_topics`` da zero.
+
+    Il rappresentante di un gruppo è il centroide del primo membro e non si
+    aggiorna durante il passaggio — esattamente come i topic appena creati nel
+    recluster reale (i centroidi si ricalcolano solo alla fine). Serve a
+    PREVEDERE l'esito di una ``topic_threshold`` senza scrivere nulla.
+    """
+    reps: list[Vector] = []
+    groups: list[list[int]] = []
+    for index, vector in enumerate(vectors):
+        best = -1
+        best_sim = -1.0
+        for g_index, rep in enumerate(reps):
+            sim = cosine(vector, rep)
+            if sim > best_sim:
+                best, best_sim = g_index, sim
+        if best >= 0 and best_sim >= threshold:
+            groups[best].append(index)
+        else:
+            reps.append(vector)
+            groups.append([index])
+    return groups
+
+
+def sweep_topic_thresholds(session: Session, thresholds: list[float]) -> list[dict]:
+    """Anteprima: che topic uscirebbero a soglie diverse, SENZA scritture.
+
+    Per ogni soglia: quanti topic, la taglia del più grosso, quanti singleton,
+    e un assaggio di etichette del gruppo più grosso — per capire a colpo
+    d'occhio se il "topicone" è coeso o un minestrone. È il cuore di
+    ``recluster --sweep``: si guarda, si sceglie, e solo allora si riscrive.
+    """
+    ideas = [idea for idea in session.exec(select(Idea)).all() if idea.centroid_json]
+    vectors = [idea.centroid_json for idea in ideas]
+    results: list[dict] = []
+    for threshold in thresholds:
+        groups = group_indices_by_similarity(vectors, threshold)
+        sizes = sorted((len(group) for group in groups), reverse=True)
+        biggest = max(groups, key=len, default=[])
+        results.append(
+            {
+                "threshold": threshold,
+                "n_topics": len(groups),
+                "max_size": sizes[0] if sizes else 0,
+                "n_singleton": sum(1 for size in sizes if size == 1),
+                "biggest_sample": [ideas[i].label[:60] for i in biggest[:3]],
+            }
+        )
+    return results

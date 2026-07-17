@@ -3,6 +3,7 @@
 import typer
 
 from app.appconfig import get_config
+from app.clustering import sweep_topic_thresholds
 from app.config import get_settings
 from app.db import get_session, init_db
 from app.models import IdeaStatus, utcnow
@@ -101,15 +102,60 @@ def run(
 
 
 @app.command()
-def recluster() -> None:
+def recluster(
+    threshold: float = typer.Option(
+        None,
+        "--threshold",
+        help="Usa questa topic_threshold al posto di quella in config.yaml (scrive davvero).",
+    ),
+    sweep: str = typer.Option(
+        None,
+        "--sweep",
+        help=(
+            "Solo anteprima, nessuna scrittura: confronta più soglie separate "
+            "da virgola (es. 0.62,0.68,0.74) sugli embedding salvati."
+        ),
+    ),
+) -> None:
     """Ri-raggruppa le idee in topic dagli embedding salvati, senza rifare il run.
 
-    Utile per provare in fretta `topic_threshold` in config.yaml e vedere subito
-    l'effetto: niente re-fetch, niente embedding, niente insight LLM per item.
+    Per tarare `topic_threshold`: prima `--sweep` per vedere l'effetto di più
+    soglie in un colpo solo, poi la soglia scelta va in config.yaml (o si
+    prova al volo con `--threshold`).
     """
+    if sweep:
+        try:
+            values = [float(v) for v in sweep.split(",") if v.strip()]
+        except ValueError:
+            values = []
+        if not values:
+            typer.echo(
+                "Formato --sweep non valido: numeri separati da virgola, "
+                "es. 0.62,0.68,0.74"
+            )
+            raise typer.Exit(2)
+        init_db()
+        with get_session() as session:
+            rows = sweep_topic_thresholds(session, values)
+        if all(r["n_topics"] == 0 for r in rows):
+            typer.echo("Nessuna idea con embedding in archivio: serve prima un run.")
+            raise typer.Exit()
+        for r in rows:
+            typer.echo(
+                f"{r['threshold']:.2f} → {r['n_topics']:>3} topic · "
+                f"il più grosso {r['max_size']} idee · {r['n_singleton']} singleton"
+            )
+            for label in r["biggest_sample"]:
+                typer.echo(f"        · {label}")
+        typer.echo(
+            "Anteprima senza scritture: scegli la soglia, mettila in "
+            "config.yaml (o usa --threshold) e rilancia recluster."
+        )
+        return
+
     typer.echo("Ricostruzione dei topic dagli embedding salvati…")
     try:
-        summary = execute_recluster()
+        summary = execute_recluster(threshold_override=threshold)
     except RunLockBusy:
         typer.echo(
             "Un run è in corso e il recluster toccherebbe gli stessi topic. "
@@ -183,8 +229,8 @@ def stats() -> None:
         data = monitor_stats(session)
         typer.echo(
             f"{data['n_items']} items → {data['n_ideas']} idee "
-            f"({data['n_proposed']} proposed) in {data['n_topics']} topic, "
-            f"su {data['n_runs']} run."
+            f"({data['n_proposed']} proposed, {data['n_archived']} archiviate) "
+            f"in {data['n_topics']} topic, su {data['n_runs']} run."
         )
         for source, count in sorted(data["items_by_source"].items()):
             typer.echo(f"  {source}: {count} items")
@@ -244,12 +290,18 @@ def schedule_status() -> None:
     )
     typer.echo(f"Caricato in launchd: {'sì' if info['loaded'] else 'no'}")
     if info["last_exit_code"] is not None:
-        meaning = {
-            "0": "ok, o salto legittimo",
-            "1": "run fallito",
-            "3": "Ollama non pronto",
-        }.get(str(info["last_exit_code"]), "codice inatteso")
-        typer.echo(f"Ultimo exit code: {info['last_exit_code']} ({meaning})")
+        code = str(info["last_exit_code"])
+        if "never exited" in code:
+            # launchctl la riporta quando il processo del tick non è mai
+            # uscito dall'ultimo load: quasi sempre significa che sta girando.
+            meaning = "nessun tick ancora concluso: probabilmente sta girando adesso"
+        else:
+            meaning = {
+                "0": "ok, o salto legittimo",
+                "1": "run fallito",
+                "3": "Ollama non pronto",
+            }.get(code, "codice inatteso")
+        typer.echo(f"Ultimo exit code: {code} ({meaning})")
     typer.echo(f"Log: {schedule_launchd.LOG_PATH}")
 
     init_db()

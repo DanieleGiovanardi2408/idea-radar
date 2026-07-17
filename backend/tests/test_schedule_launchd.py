@@ -124,3 +124,34 @@ def test_status_when_not_loaded(
     info = sl.status(runner=lambda *a: _completed(113))
     assert info["loaded"] is False
     assert info["last_exit_code"] is None
+
+
+def test_cli_status_translates_never_exited(monkeypatch: pytest.MonkeyPatch) -> None:
+    """launchctl dice "(never exited)" per un tick in corso: la CLI lo spiega."""
+    from contextlib import contextmanager
+
+    from typer.testing import CliRunner
+
+    from app import cli
+
+    @contextmanager
+    def _fake_session():
+        yield None
+
+    monkeypatch.setattr(cli, "init_db", lambda: None)
+    monkeypatch.setattr(cli, "get_session", _fake_session)
+    monkeypatch.setattr(cli, "monitor_stats", lambda session: {"recent_runs": []})
+    monkeypatch.setattr(
+        sl,
+        "status",
+        lambda: {
+            "plist": "x",
+            "installed": True,
+            "loaded": True,
+            "last_exit_code": "(never exited)",
+        },
+    )
+
+    result = CliRunner().invoke(cli.app, ["schedule", "status"])
+    assert result.exit_code == 0
+    assert "girando" in result.output
