@@ -57,7 +57,7 @@ composite = quality × (relevance_floor + (1 − relevance_floor) × fit)
 
 | Metric | What it measures |
 |--------|------------------|
-| **Heat** | *Speed* of growth — stars/day on GitHub, engagement on HN/RSS — not absolute popularity. |
+| **Heat** | *Speed* of growth, not absolute popularity — **measured**, where history exists, between consecutive engagement observations (stars/day, points/day) in a sliding window; new items fall back to an engagement/age heuristic until a second observation lands. |
 | **Credibility** | Trustworthiness of the source and whether there's an identifiable author. |
 | **Feasibility** | How buildable it is for a team of 1–3 people, estimated by the LLM against an explicit rubric. |
 | **Opportunity** | Recent **and** not yet saturated — the brake that keeps finished projects off the top. |
@@ -188,7 +188,7 @@ Runtime behaviour lives in [`backend/config.yaml`](backend/config.yaml) — sour
 | `OLLAMA_MODEL` | Insight model (default `qwen2.5:7b`) |
 | `EMBEDDING_MODEL` | Embedding model (default `nomic-embed-text`) |
 
-Two knobs worth knowing: `scoring.threshold` controls how selective the radar is, and `clustering.idea_threshold` controls how aggressively duplicate signals merge (higher = only near-identical items collapse).
+Three knobs worth knowing: `scoring.threshold` controls how selective the radar is, `clustering.idea_threshold` controls how aggressively duplicate signals merge (higher = only near-identical items collapse), and `scoring.heat_window_days` sets the sliding window the delta-based heat measures velocity over.
 
 ---
 
@@ -237,11 +237,10 @@ This repository contains **code only**. The database with collected data stays *
 
 ## Roadmap
 
-Recently shipped: semantic deduplication end-to-end · per-idea insight cache · fit-gate · `recluster` command with threshold sweep · scheduled runs (launchd agent + CLI gate, SQLite in WAL) · engagement-history snapshots per run · idea lifecycle (auto-archive after 14 idle days, auto-revive on new signal) · HN Algolia backfill to heal gaps · **immersive "radar room" frontend redesign**.
+Recently shipped: semantic deduplication end-to-end · per-idea insight cache · fit-gate · `recluster` command with threshold sweep · scheduled runs (launchd agent + CLI gate, SQLite in WAL) · engagement-history snapshots per run · idea lifecycle (auto-archive after 14 idle days, auto-revive on new signal) · HN Algolia backfill to heal gaps · immersive "radar room" frontend redesign · **delta-based heat** — velocity measured between consecutive `item_stats` observations, window-scoped, on live-counter sources (GitHub, HN).
 
 Next:
 
-- [ ] **Delta-based heat** — replace engagement/age with velocity measured between consecutive `item_stats` observations.
 - [ ] Configurable, smaller insight model for faster runs on modest hardware.
 - [ ] More source connectors behind the same interface.
 

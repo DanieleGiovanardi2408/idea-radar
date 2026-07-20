@@ -11,7 +11,7 @@ sources:
   # Backfill HN via Algolia: colma i buchi a Mac spento con una finestra
   # fissa di 48h a ogni run e, ripassando sulle stesse storie per due giorni,
   # regala a item_stats osservazioni ripetute di engagement (il carburante
-  # della futura heat "a delta"). Stessa source "hn" delle top-story:
+  # della heat "a delta"). Stessa source "hn" delle top-story:
   # i doppioni si fondono da soli per id.
   - name: hn-backfill
     type: hn_algolia
@@ -70,6 +70,15 @@ scoring:
   # (niente 7B). 0.0 = salta solo gli item senza alcun match di keyword;
   # alzala (~0.2) per saltare anche i match deboli e velocizzare ancora i run.
   insight_min_fit: 0.0
+  # Heat "a delta" (GitHub e HN, i contatori vivi): la velocità si misura tra
+  # la più vecchia osservazione di item_stats in questa finestra (giorni) e la
+  # più recente. Finestra piccola = heat reattiva, grande = più liscia; deve
+  # coprire più run schedulati. Con meno di 2 osservazioni utili (item nuovo)
+  # si ripiega sull'euristica engagement/età.
+  heat_window_days: 3
+  # Sotto questa distanza (ore) tra le due osservazioni il rapporto
+  # engagement/tempo è rumore amplificato: si resta sull'euristica.
+  heat_min_span_hours: 2
 
 # Aggregazione semantica (richiede `ollama pull nomic-embed-text`).
 clustering:

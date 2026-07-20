@@ -45,6 +45,13 @@ class ScoringConfig(BaseModel):
     # questa soglia si usa l'insight euristico (niente 7B). 0.0 = salta solo i
     # fit == 0, cioè gli item senza NESSUN match di keyword.
     insight_min_fit: float = 0.0
+    # Heat "a delta": finestra (giorni) entro cui misurare la velocità tra
+    # osservazioni di item_stats. Piccola = heat più reattiva ("sta salendo
+    # ORA"), grande = più liscia. Deve coprire più run schedulati.
+    heat_window_days: float = 3.0
+    # Distanza minima (ore) tra le due osservazioni del delta: sotto, il
+    # rapporto engagement/tempo amplifica il rumore e si ripiega sull'euristica.
+    heat_min_span_hours: float = 2.0
 
     @field_validator("weights")
     @classmethod

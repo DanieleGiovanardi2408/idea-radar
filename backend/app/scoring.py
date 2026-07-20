@@ -3,9 +3,11 @@
 Idea di fondo: un radar non deve premiare ciò che *ha già vinto*, ma ciò che
 **sta salendo**. Quindi:
 
-- ``heat`` misura la **velocità** (stelle/giorno su GitHub, engagement su HN e
-  RSS), non la popolarità assoluta: n8n con 100k stelle in 6 anni non è
-  un'opportunità, un repo con 2k stelle in 3 mesi sì.
+- ``heat`` misura la **velocità**, non la popolarità assoluta: n8n con 100k
+  stelle in 6 anni non è un'opportunità, un repo con 2k stelle in 3 mesi sì.
+  Dove la storia esiste (osservazioni ripetute in ``item_stats``) la velocità
+  è **misurata a delta** tra osservazioni; altrimenti si stima con
+  l'euristica engagement/età (cold start).
 - ``saturation`` misura quanto una cosa è *già affermata* (popolarità assoluta
   + età) e **abbassa** l'opportunity: è il freno che tiene i progetti maturi
   fuori dalla cima.
@@ -17,18 +19,26 @@ Idea di fondo: un radar non deve premiare ciò che *ha già vinto*, ma ciò che
 
 import math
 import re
+from collections.abc import Sequence
+from datetime import timedelta
 
 from pydantic import BaseModel
 
 from app.appconfig import AppConfig
 from app.llm import IdeaInsight
-from app.models import Difficulty, IdeaStatus, Item, utcnow
+from app.models import Difficulty, IdeaStatus, Item, ItemStat, utcnow
 
 _QUALITY_METRICS = ("heat", "credibility", "feasibility", "opportunity")
 
 # Velocità che vale heat = 1.0, per fonte.
 _VELOCITY_CAP = {"github": 30.0, "hn": 300.0}  # stelle/giorno | punti+commenti
 _DEFAULT_VELOCITY_CAP = 100.0
+
+# Fonti il cui engagement è un CONTATORE VIVO (stelle, punti): lì un delta tra
+# osservazioni misura crescita reale. I feed RSS invece fotografano il valore
+# alla pubblicazione e non lo aggiornano mai: il loro delta è zero per
+# costruzione, non perché l'item si sia fermato — quindi restano sull'euristica.
+_LIVE_COUNTER_SOURCES = frozenset({"github", "hn"})
 
 # Popolarità assoluta oltre la quale una cosa è "affermata".
 _SATURATION_CAP = {"github": 60_000.0, "hn": 1_500.0}
@@ -82,11 +92,11 @@ def absolute_engagement(item: Item) -> float:
 
 
 def _velocity(item: Item) -> float:
-    """Engagement per unità di tempo: quanto *sta* crescendo, non quanto è grande.
+    """Stima *euristica* della velocità, quando la storia non c'è (cold start).
 
-    Su GitHub dividiamo per l'età del repo (stelle/giorno). Su HN e RSS no: la
-    front page è per costruzione fresca, quindi l'engagement grezzo è già di
-    fatto una misura di velocità.
+    Su GitHub dividiamo per l'età del repo (stelle/giorno medie di vita). Su HN
+    e RSS no: la front page è per costruzione fresca, quindi l'engagement
+    grezzo è già di fatto una misura di velocità.
     """
     absolute = absolute_engagement(item)
     if item.source == "github":
@@ -94,8 +104,51 @@ def _velocity(item: Item) -> float:
     return absolute
 
 
-def _heat(item: Item) -> float:
+def _delta_velocity(
+    observations: Sequence[ItemStat],
+    *,
+    window_days: float,
+    min_span_hours: float,
+) -> float | None:
+    """Velocità MISURATA: engagement/giorno tra la più vecchia osservazione
+    nella finestra e la più recente.
+
+    La finestra tiene la misura "attuale": un repo cresciuto un mese fa ma
+    fermo negli ultimi giorni deve raffreddarsi, non vivere di rendita sulla
+    media di vita. ``None`` = segnale insufficiente (meno di due osservazioni
+    nella finestra, o troppo ravvicinate perché il rapporto non sia rumore):
+    il chiamante ripiega sull'euristica.
+    """
+    if len(observations) < 2:
+        return None
+    ordered = sorted(observations, key=lambda o: o.observed_at)
+    last = ordered[-1]
+    cutoff = last.observed_at - timedelta(days=window_days)
+    windowed = [o for o in ordered if o.observed_at >= cutoff]
+    if len(windowed) < 2:
+        return None
+    first = windowed[0]
+    span_days = (last.observed_at - first.observed_at).total_seconds() / 86400.0
+    if span_days <= 0 or span_days * 24.0 < min_span_hours:
+        return None
+    return max(0.0, (last.engagement - first.engagement) / span_days)
+
+
+def _heat(
+    item: Item,
+    config: AppConfig,
+    observations: Sequence[ItemStat] | None = None,
+) -> float:
+    """Heat "a delta" dove possibile, euristica dove la storia non c'è ancora."""
     cap = _VELOCITY_CAP.get(item.source, _DEFAULT_VELOCITY_CAP)
+    if observations and item.source in _LIVE_COUNTER_SOURCES:
+        measured = _delta_velocity(
+            observations,
+            window_days=config.scoring.heat_window_days,
+            min_span_hours=config.scoring.heat_min_span_hours,
+        )
+        if measured is not None:
+            return _saturate(measured, cap)
     return _saturate(_velocity(item), cap)
 
 
@@ -145,8 +198,15 @@ def _recency(item: Item) -> float:
     return _clamp(1 - _age_days(item) / 365.0)  # decadimento lineare su un anno
 
 
-def score_item(item: Item, insight: IdeaInsight, config: AppConfig) -> ScoreResult:
-    heat = _heat(item)
+def score_item(
+    item: Item,
+    insight: IdeaInsight,
+    config: AppConfig,
+    observations: Sequence[ItemStat] | None = None,
+) -> ScoreResult:
+    """Punteggi di un item. ``observations`` è la storia engagement dell'item
+    (``ItemStat`` in ordine qualsiasi): se assente, la heat usa l'euristica."""
+    heat = _heat(item, config, observations)
     saturation = _saturation(item)
 
     credibility = _clamp(

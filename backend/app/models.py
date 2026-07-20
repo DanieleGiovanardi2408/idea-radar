@@ -120,8 +120,8 @@ class ItemStat(SQLModel, table=True):
     ``upsert_item`` SOVRASCRIVE ``engagement_json`` a ogni re-fetch: senza
     questa tabella la storia (stelle/punti nel tempo) andrebbe persa proprio
     ora che i run schedulati la producono da soli. È la materia prima della
-    futura heat "a delta": velocità misurata tra osservazioni consecutive,
-    non mediata sull'età dell'item.
+    heat "a delta": velocità misurata tra osservazioni consecutive, non
+    mediata sull'età dell'item (``scoring._delta_velocity``).
     """
 
     __tablename__ = "item_stats"

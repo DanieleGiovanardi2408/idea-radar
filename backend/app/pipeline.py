@@ -72,8 +72,8 @@ def _collect(
             )
             stored = upsert_item(session, raw_item)
             # Fotografa l'engagement di QUESTO run: sull'item l'upsert lo
-            # sovrascrive, qui se ne conserva la storia (base della futura
-            # heat "a delta" tra osservazioni consecutive).
+            # sovrascrive, qui se ne conserva la storia — è la serie su cui
+            # la heat "a delta" misura la velocità tra osservazioni.
             if session.get(ItemStat, (stored.id, run.id)) is None:
                 session.add(
                     ItemStat(
@@ -213,7 +213,13 @@ def run_pipeline(
                 insight = heuristic_insight(item)
             else:
                 insight = generate_insight(item, settings, ollama=ollama)
-            result = score_item(item, insight, config)
+            # La storia engagement dell'item (osservazione di questo run
+            # inclusa): dove ci sono >= 2 osservazioni la heat è misurata a
+            # delta invece che stimata dall'età.
+            observations = session.exec(
+                select(ItemStat).where(ItemStat.item_id == item.id)
+            ).all()
+            result = score_item(item, insight, config, observations=observations)
 
             idea.last_seen = utcnow()
 
