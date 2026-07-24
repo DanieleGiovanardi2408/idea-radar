@@ -22,3 +22,7 @@ build/
 .DS_Store
 .idea/
 .vscode/
+
+# Scratch locali (tooling e residui, mai committati)
+_to_delete/
+_refactor_assets/

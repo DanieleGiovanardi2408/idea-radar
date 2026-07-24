@@ -20,7 +20,7 @@
 
 ---
 
-Idea Radar collects signals from **Hacker News, GitHub, and tech RSS feeds**, groups them by meaning, and ranks them by **opportunity**. The guiding idea: a project with 100k stars accumulated over six years is a *closed market*, not an opening. A repo with 2k stars in three months might be one. The radar is built to tell those two apart.
+Idea Radar collects signals from **Hacker News, GitHub, arXiv, Product Hunt, and tech RSS feeds**, groups them by meaning, and ranks them by **opportunity**. The guiding idea: a project with 100k stars accumulated over six years is a *closed market*, not an opening. A repo with 2k stars in three months might be one. The radar is built to tell those two apart.
 
 Everything runs on **free APIs and a local LLM** (via [Ollama](https://ollama.com/)) — no paid services, no cloud model calls, nothing leaves your machine.
 
@@ -33,6 +33,8 @@ flowchart LR
     HN[Hacker News]:::src --> Items[(Items)]
     HNA[HN Algolia backfill]:::src --> Items
     GH[GitHub]:::src --> Items
+    ARX[arXiv]:::src --> Items
+    PH[Product Hunt]:::src --> Items
     RSS[RSS feeds]:::src --> Items
     Items --> Emb[Embeddings<br/>nomic-embed-text]
     Emb --> Ideas[Ideas<br/>semantic dedup]
@@ -75,7 +77,7 @@ Local embeddings do two jobs with one mechanism: merge different signals that te
 
 The interface is a single-page "radar room": a dark, glass-panelled console with a phosphor-green accent, live sweep animation, and [Space Grotesk](https://fonts.google.com/specimen/Space+Grotesk) throughout. Data and models stay entirely local.
 
-- **Radar** — every idea as a blip on a polar scope. Distance from the centre is `1 − composite`, so the best opportunities sit *on your heading*, near the middle; a rotating sweep makes each blip flash as it passes. Below the scope, the same ideas as a ranked, searchable list.
+- **Radar** — every idea as a blip on a polar scope. Distance from the centre is `1 − composite`, so the best opportunities sit *on your heading*, near the middle; a rotating sweep makes each blip flash as it passes. Below the scope, the same ideas as a ranked, searchable list. Each idea can be **pinned** (kept on top and shielded from auto-archiving), **dismissed** (hidden until you ask for it back), and **annotated** with a private note — actions that persist across runs and are reachable by deep link (`?idea=<id>`).
 - **Topic** — ideas grouped by theme, each topic expandable into its members.
 - **Trend** — what's moving between runs, with a hover-tooltip area chart per topic and the biggest mover highlighted. (Needs at least two runs; with one, deltas are zero by construction.)
 - **Monitor** — live pipeline progress: ingestion funnel, per-source counts, active sources, and recent-run history. While a run is in progress the whole view polls every 2s.
@@ -96,6 +98,8 @@ The interface is a single-page "radar room": a dark, glass-panelled console with
 
 - **Opportunity-first ranking** that rewards momentum over accumulated popularity.
 - **Semantic deduplication** — the same launch on HN, GitHub, and a blog collapses into one idea.
+- **Config-driven sources** — each collector declares its own scoring *profile* (velocity/saturation caps, credibility, whether its engagement is a live counter) next to its code and registers itself on import. Adding a source is one file plus one line of `config.yaml` — no edits to the scorer.
+- **User actions on ideas** — pin, dismiss, mark-as-seen, and free-text notes, all persisted and orthogonal to the pipeline's own status (a run never overwrites your decisions; a pinned idea is never auto-archived).
 - **Local-only LLM** for summaries, "why it matters" notes, and difficulty estimates — nothing is sent to a paid API.
 - **Trends across runs** — topics are tracked over time so you can see what's rising.
 - **Resilient collection** — a rate-limited or broken feed is skipped, never crashes a run; RSS fetching is polite (honest User-Agent, throttling, `Retry-After`).
@@ -109,9 +113,9 @@ The interface is a single-page "radar room": a dark, glass-panelled console with
 | Layer | Stack |
 |-------|-------|
 | Backend | Python 3.11+, [uv](https://docs.astral.sh/uv/), FastAPI + Uvicorn, SQLModel (SQLite), Typer CLI, pydantic-settings, pytest |
-| Frontend | Vite + React 19 + TypeScript, Tailwind CSS v4, Space Grotesk |
+| Frontend | Vite + React 19 + TypeScript, Tailwind CSS v4, React Router, TanStack Query, Space Grotesk |
 | Intelligence | Ollama — `qwen2.5:7b` (insights), `nomic-embed-text` (embeddings) |
-| Sources | Hacker News (Firebase API + Algolia backfill), GitHub (Search API), RSS |
+| Sources | Hacker News (Firebase API + Algolia backfill), GitHub (Search API), arXiv (Atom API), Product Hunt (GraphQL v2), RSS |
 
 ---
 
@@ -184,11 +188,14 @@ Runtime behaviour lives in [`backend/config.yaml`](backend/config.yaml) — sour
 | Variable | Purpose |
 |----------|---------|
 | `GITHUB_TOKEN` | Free GitHub token for the Search API |
+| `PRODUCTHUNT_TOKEN` | Free Product Hunt developer token (only needed if the `producthunt` source is enabled) |
 | `OLLAMA_HOST` | Ollama endpoint (default `http://localhost:11434`) |
 | `OLLAMA_MODEL` | Insight model (default `qwen2.5:7b`) |
 | `EMBEDDING_MODEL` | Embedding model (default `nomic-embed-text`) |
 
 Three knobs worth knowing: `scoring.threshold` controls how selective the radar is, `clustering.idea_threshold` controls how aggressively duplicate signals merge (higher = only near-identical items collapse), and `scoring.heat_window_days` sets the sliding window the delta-based heat measures velocity over.
+
+Each source is one entry under `sources` with a `type` (`hn`, `hn_algolia`, `github`, `arxiv`, `producthunt`, `rss`) and its own options (`feeds` for RSS, `categories` for arXiv, `lookback_hours`/`min_points` for the Algolia backfill). The `producthunt` source ships **disabled**: enable it after setting `PRODUCTHUNT_TOKEN`. All the per-source scoring parameters live in each collector's `SourceProfile` (`backend/app/sources/<source>.py`), not in the scorer.
 
 ---
 
@@ -197,10 +204,12 @@ Three knobs worth knowing: `scoring.threshold` controls how selective the radar 
 ```
 backend/
   app/
-    api.py               # FastAPI endpoints
+    api.py               # FastAPI endpoints (incl. PATCH /ideas/{id} for user actions)
     cli.py               # Typer CLI (entry point: `uv run idea-radar`)
     pipeline.py          # run orchestration
-    sources/             # collectors: hackernews, hn-algolia, github, rss
+    sources/             # collectors: hackernews, hn-algolia, github, arxiv, producthunt, rss
+      base.py            #   self-registering type registry (register_source / load_collectors)
+      profiles.py        #   per-source scoring profile (velocity/saturation caps, credibility…)
     embeddings.py        # local embeddings + similarity
     clustering.py        # items → ideas, ideas → topics
     scoring.py           # metrics and composite
@@ -214,7 +223,8 @@ backend/
   tests/
 frontend/
   src/
-    App.tsx              # shell: header, nav, live polling
+    App.tsx              # shell: header, URL-routed nav, deep-linked detail drawer
+    hooks/               # useRadarData: TanStack Query hooks + run-watching / mutations
     api.ts               # typed client
     types.ts             # shared API types
     index.css            # "radar room" design system (Tailwind v4 theme, glass, motion)
@@ -237,12 +247,13 @@ This repository contains **code only**. The database with collected data stays *
 
 ## Roadmap
 
-Recently shipped: semantic deduplication end-to-end · per-idea insight cache · fit-gate · `recluster` command with threshold sweep · scheduled runs (launchd agent + CLI gate, SQLite in WAL) · engagement-history snapshots per run · idea lifecycle (auto-archive after 14 idle days, auto-revive on new signal) · HN Algolia backfill to heal gaps · immersive "radar room" frontend redesign · **delta-based heat** — velocity measured between consecutive `item_stats` observations, window-scoped, on live-counter sources (GitHub, HN).
+Recently shipped: semantic deduplication end-to-end · per-idea insight cache · fit-gate · `recluster` command with threshold sweep · scheduled runs (launchd agent + CLI gate, SQLite in WAL) · engagement-history snapshots per run · idea lifecycle (auto-archive after 14 idle days, auto-revive on new signal) · HN Algolia backfill to heal gaps · immersive "radar room" frontend redesign · **delta-based heat** — velocity measured between consecutive `item_stats` observations, window-scoped, on live-counter sources (GitHub, HN) · **config-driven sources** — self-registering collectors, per-source scoring profiles · **arXiv and Product Hunt connectors** behind the same interface · **user actions** — pin / dismiss / mark-seen / notes, persisted across runs · **URL routing + TanStack Query** frontend data layer · SQL-side filtering, ordering and pagination on `/ideas`.
 
 Next:
 
 - [ ] Configurable, smaller insight model for faster runs on modest hardware.
-- [ ] More source connectors behind the same interface.
+- [ ] Clustering at scale — vectorised similarity (numpy / `sqlite-vec`), batched embeddings, a `heal` command to re-merge singletons left by degraded runs.
+- [ ] Cross-run digest and a full run history in the Monitor view.
 
 ---
 
