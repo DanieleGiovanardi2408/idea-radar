@@ -26,6 +26,20 @@ export type IdeaOut = {
   first_seen: string | null
   last_seen: string | null
   items: ItemOut[]
+  /* Campi utente: annotazioni personali, sopravvivono ai run */
+  pinned: boolean
+  dismissed_at: string | null
+  seen_at: string | null
+  note: string | null
+}
+
+/* Body di PATCH /ideas/{id}: i campi assenti non vengono toccati;
+   `note: null` cancella la nota, `dismissed` scarta o ripristina. */
+export type PatchIdeaBody = {
+  pinned?: boolean
+  dismissed?: boolean
+  seen?: boolean
+  note?: string | null
 }
 
 export type ScorePoint = {

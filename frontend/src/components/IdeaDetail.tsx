@@ -1,11 +1,14 @@
-import { useEffect, useState, type ReactNode } from 'react'
-import { api } from '../api'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useIdea, usePatchIdea } from '../hooks/useRadarData'
 import type { IdeaDetailOut } from '../types'
 import {
   AreaSpark,
   Badge,
   DIFFICULTY_STYLES,
   IconArrowUpRight,
+  IconDismiss,
+  IconPin,
+  IconRestore,
   IconX,
   MetricBar,
   ScoreRing,
@@ -62,21 +65,37 @@ export function IdeaDetail({
   ideaId: number
   onClose: () => void
 }) {
-  const [idea, setIdea] = useState<IdeaDetailOut | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const { data: idea, isError } = useIdea(ideaId)
+  const { mutate: patchIdea, isPending: patching } = usePatchIdea()
 
+  // Alla prima apertura del dettaglio il segnale è "visto": una sola PATCH
+  // per apertura, il ref evita i reinvii ad ogni render.
+  const seenFor = useRef<number | null>(null)
   useEffect(() => {
-    let alive = true
-    setIdea(null)
-    setError(null)
-    api
-      .idea(ideaId)
-      .then((d) => alive && setIdea(d))
-      .catch(() => alive && setError('Impossibile caricare il dettaglio.'))
-    return () => {
-      alive = false
+    if (seenFor.current === ideaId) return
+    seenFor.current = ideaId
+    patchIdea({ id: ideaId, body: { seen: true } })
+    // patchIdea (mutate di React Query) è stabile tra i render
+  }, [ideaId, patchIdea])
+
+  // La nota è testo locale finché non salvi: seed una volta per idea, così
+  // un refetch in background non ti cancella quello che stai scrivendo.
+  const [note, setNote] = useState('')
+  const seededFor = useRef<number | null>(null)
+  useEffect(() => {
+    if (idea && seededFor.current !== ideaId) {
+      seededFor.current = ideaId
+      setNote(idea.note ?? '')
     }
-  }, [ideaId])
+  }, [idea, ideaId])
+
+  const saveNote = () => {
+    if (!idea || patching) return
+    const trimmed = note.trim()
+    const next = trimmed === '' ? null : trimmed
+    if (next === (idea.note ?? null)) return
+    patchIdea({ id: ideaId, body: { note: next } })
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
@@ -91,6 +110,7 @@ export function IdeaDetail({
         ? 'up'
         : 'down'
       : 'accent'
+  const dismissed = idea ? idea.dismissed_at !== null : false
 
   return (
     <div
@@ -119,6 +139,16 @@ export function IdeaDetail({
                   {idea.label}
                 </h2>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {idea.pinned && (
+                    <Badge className="bg-phosphor/10 text-phosphor ring-phosphor/30">
+                      <IconPin filled /> pinnata
+                    </Badge>
+                  )}
+                  {dismissed && (
+                    <Badge className="bg-flare/10 text-flare ring-flare/30">
+                      scartata
+                    </Badge>
+                  )}
                   <Badge className={STATUS_STYLES[idea.status] ?? STATUS_STYLES.processed}>
                     {idea.status}
                   </Badge>
@@ -136,22 +166,58 @@ export function IdeaDetail({
               </>
             ) : (
               <h2 className="mt-1 font-display text-lg font-semibold text-slate-500">
-                {error ? 'Segnale non raggiungibile' : 'Sintonizzazione…'}
+                {isError ? 'Segnale non raggiungibile' : 'Sintonizzazione…'}
               </h2>
             )}
           </div>
-          <button
-            onClick={onClose}
-            className="glass glass-hover shrink-0 rounded-xl p-2 text-slate-400 hover:text-phosphor"
-            aria-label="Chiudi"
-          >
-            <IconX />
-          </button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {idea && (
+              <>
+                <button
+                  onClick={() =>
+                    patchIdea({ id: ideaId, body: { pinned: !idea.pinned } })
+                  }
+                  disabled={patching}
+                  title={idea.pinned ? 'Togli il pin' : 'Pinna in cima'}
+                  aria-label={idea.pinned ? 'Togli il pin' : 'Pinna in cima'}
+                  className={`glass glass-hover rounded-xl p-2 transition-colors disabled:opacity-50 ${
+                    idea.pinned ? 'text-phosphor' : 'text-slate-400 hover:text-phosphor'
+                  }`}
+                >
+                  <IconPin filled={idea.pinned} />
+                </button>
+                <button
+                  onClick={() =>
+                    patchIdea({ id: ideaId, body: { dismissed: !dismissed } })
+                  }
+                  disabled={patching}
+                  title={dismissed ? 'Ripristina' : 'Scarta'}
+                  aria-label={dismissed ? 'Ripristina' : 'Scarta'}
+                  className={`glass glass-hover rounded-xl p-2 transition-colors disabled:opacity-50 ${
+                    dismissed
+                      ? 'text-slate-400 hover:text-phosphor'
+                      : 'text-slate-400 hover:text-flare'
+                  }`}
+                >
+                  {dismissed ? <IconRestore /> : <IconDismiss />}
+                </button>
+              </>
+            )}
+            <button
+              onClick={onClose}
+              className="glass glass-hover rounded-xl p-2 text-slate-400 hover:text-phosphor"
+              aria-label="Chiudi"
+            >
+              <IconX />
+            </button>
+          </div>
         </header>
 
-        {error && <p className="p-5 text-sm text-flare">{error}</p>}
+        {isError && (
+          <p className="p-5 text-sm text-flare">Impossibile caricare il dettaglio.</p>
+        )}
 
-        {!idea && !error && (
+        {!idea && !isError && (
           <div className="space-y-4 p-5">
             <div className="flex items-center gap-4">
               <div className="size-16 shrink-0 rounded-full bg-white/[0.05]" />
@@ -219,7 +285,32 @@ export function IdeaDetail({
               </Section>
             )}
 
-            <Section label={`Segnali (${idea.items.length})`} delayMs={220}>
+            <Section label="La tua nota" delayMs={200}>
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                onBlur={saveNote}
+                rows={3}
+                placeholder="Appunti personali su questo segnale…"
+                className="w-full resize-y rounded-xl border border-transparent bg-white/[0.03] px-3.5 py-2.5 text-sm leading-relaxed text-slate-200 transition-colors placeholder:text-slate-600 focus:border-phosphor/30 focus:bg-white/[0.05] focus:outline-none"
+              />
+              <div className="mt-2 flex items-center justify-between">
+                <span className="text-xs text-slate-600">
+                  {patching
+                    ? 'Salvataggio…'
+                    : 'Si salva da sola quando esci dal campo. Vuota = cancellata.'}
+                </span>
+                <button
+                  onClick={saveNote}
+                  disabled={patching}
+                  className="glass glass-hover rounded-lg px-2.5 py-1 text-xs font-medium text-phosphor disabled:opacity-50"
+                >
+                  Salva nota
+                </button>
+              </div>
+            </Section>
+
+            <Section label={`Segnali (${idea.items.length})`} delayMs={240}>
               <ul className="grid gap-2">
                 {idea.items.map((item, i) => (
                   <li

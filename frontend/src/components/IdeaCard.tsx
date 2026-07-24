@@ -1,10 +1,14 @@
 import type { CSSProperties } from 'react'
+import { usePatchIdea } from '../hooks/useRadarData'
 import type { IdeaOut } from '../types'
 import { staggerDelay } from './motion'
 import {
   Badge,
   DIFFICULTY_STYLES,
   IconArrowUpRight,
+  IconDismiss,
+  IconPin,
+  IconRestore,
   ScoreRing,
   STATUS_STYLES,
 } from './ui'
@@ -18,12 +22,25 @@ export function IdeaCard({
   index?: number
   onSelect: (id: number) => void
 }) {
+  const { mutate: patchIdea, isPending } = usePatchIdea()
   const sources = Array.from(new Set(idea.items.map((i) => i.source)))
   const rank = index + 1
+  const dismissed = idea.dismissed_at !== null
+
   return (
-    <button
+    /* Non è un <button>: dentro ci sono i bottoni azione (nested button è
+       HTML invalido), quindi la card è un div con semantica da bottone. */
+    <div
+      role="button"
+      tabIndex={0}
       onClick={() => onSelect(idea.id)}
-      className="glass glass-hover stagger group relative w-full overflow-hidden rounded-2xl p-4 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-phosphor/60"
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onSelect(idea.id)
+        }
+      }}
+      className="glass glass-hover stagger group relative w-full cursor-pointer overflow-hidden rounded-2xl p-4 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-phosphor/60"
       style={staggerDelay(index) as CSSProperties}
       data-testid="idea-card"
     >
@@ -43,6 +60,14 @@ export function IdeaCard({
             {idea.why_text || idea.summary || 'Nessuna descrizione.'}
           </p>
           <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+            {idea.pinned && (
+              <Badge className="bg-phosphor/10 text-phosphor ring-phosphor/30">
+                <IconPin filled /> pinnata
+              </Badge>
+            )}
+            {dismissed && (
+              <Badge className="bg-flare/10 text-flare ring-flare/30">scartata</Badge>
+            )}
             <Badge className={STATUS_STYLES[idea.status] ?? STATUS_STYLES.processed}>
               {idea.status}
             </Badge>
@@ -66,9 +91,45 @@ export function IdeaCard({
                 {idea.n_items} segnali
               </Badge>
             )}
+
+            {/* azioni rapide: fermano la propagazione (la card apre il dettaglio) */}
+            <span className="ml-auto flex items-center gap-1">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  patchIdea({ id: idea.id, body: { pinned: !idea.pinned } })
+                }}
+                disabled={isPending}
+                title={idea.pinned ? 'Togli il pin' : 'Pinna in cima'}
+                aria-label={idea.pinned ? 'Togli il pin' : 'Pinna in cima'}
+                className={`rounded-lg p-1.5 ring-1 transition-colors duration-300 disabled:opacity-50 ${
+                  idea.pinned
+                    ? 'bg-phosphor/10 text-phosphor ring-phosphor/30'
+                    : 'text-slate-600 ring-white/[0.06] hover:text-phosphor hover:ring-phosphor/30'
+                }`}
+              >
+                <IconPin filled={idea.pinned} />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  patchIdea({ id: idea.id, body: { dismissed: !dismissed } })
+                }}
+                disabled={isPending}
+                title={dismissed ? 'Ripristina' : 'Scarta'}
+                aria-label={dismissed ? 'Ripristina' : 'Scarta'}
+                className={`rounded-lg p-1.5 ring-1 transition-colors duration-300 disabled:opacity-50 ${
+                  dismissed
+                    ? 'text-slate-500 ring-white/[0.06] hover:text-phosphor hover:ring-phosphor/30'
+                    : 'text-slate-600 ring-white/[0.06] hover:text-flare hover:ring-flare/30'
+                }`}
+              >
+                {dismissed ? <IconRestore /> : <IconDismiss />}
+              </button>
+            </span>
           </div>
         </div>
       </div>
-    </button>
+    </div>
   )
 }

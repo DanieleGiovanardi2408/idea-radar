@@ -1,19 +1,35 @@
 import { useState, type CSSProperties } from 'react'
 import { IdeaCard } from '../components/IdeaCard'
 import { staggerDelay } from '../components/motion'
-import { Badge, EmptyState, IconChevron, ScoreRing } from '../components/ui'
-import type { IdeaOut, TopicOut } from '../types'
+import {
+  Badge,
+  EmptyState,
+  ErrorNotice,
+  IconChevron,
+  ScoreRing,
+  SkeletonCard,
+} from '../components/ui'
+import { useIdeas, useTopics } from '../hooks/useRadarData'
 
-export function TopicsView({
-  topics,
-  ideas,
-  onSelect,
-}: {
-  topics: TopicOut[]
-  ideas: IdeaOut[]
-  onSelect: (id: number) => void
-}) {
+export function TopicsView({ onSelect }: { onSelect: (id: number) => void }) {
   const [openId, setOpenId] = useState<number | null>(null)
+  const { data: topics = [], isPending, isError } = useTopics()
+  // Le idee servono solo per popolare la fisarmonica: la query è condivisa
+  // con il radar, quindi qui non costa una fetch in più.
+  const { data: ideas = [] } = useIdeas()
+
+  if (isError) {
+    return <ErrorNotice>Impossibile caricare i topic dal backend.</ErrorNotice>
+  }
+
+  if (isPending) {
+    return (
+      <div className="grid gap-3">
+        <SkeletonCard />
+        <SkeletonCard />
+      </div>
+    )
+  }
 
   if (topics.length === 0) {
     return (

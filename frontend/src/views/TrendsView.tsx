@@ -1,7 +1,13 @@
 import type { CSSProperties } from 'react'
 import { staggerDelay } from '../components/motion'
-import { AreaSpark, EmptyState, Panel } from '../components/ui'
-import type { TrendOut } from '../types'
+import {
+  AreaSpark,
+  EmptyState,
+  ErrorNotice,
+  Panel,
+  SkeletonCard,
+} from '../components/ui'
+import { useTrends } from '../hooks/useRadarData'
 
 function DeltaChip({ value }: { value: number }) {
   if (value === 0) {
@@ -41,8 +47,22 @@ function shortDate(value: string): string {
   })
 }
 
-export function TrendsView({ trends }: { trends: TrendOut[] }) {
+export function TrendsView() {
+  const { data: trends = [], isPending, isError } = useTrends()
   const hasHistory = trends.some((t) => t.points.length > 1)
+
+  if (isError) {
+    return <ErrorNotice>Impossibile caricare i trend dal backend.</ErrorNotice>
+  }
+
+  if (isPending) {
+    return (
+      <div className="grid gap-3">
+        <SkeletonCard />
+        <SkeletonCard />
+      </div>
+    )
+  }
 
   if (trends.length === 0) {
     return (

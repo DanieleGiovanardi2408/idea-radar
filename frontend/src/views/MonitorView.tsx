@@ -1,5 +1,6 @@
 import { AnimatedNumber } from '../components/motion'
-import { EmptyState, Panel, StatCard } from '../components/ui'
+import { EmptyState, ErrorNotice, Panel, StatCard } from '../components/ui'
+import { useStats } from '../hooks/useRadarData'
 import type { RunOut, StatsOut } from '../types'
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -153,7 +154,12 @@ function RunProgress({ run }: { run: RunOut }) {
   )
 }
 
-export function MonitorView({ stats }: { stats: StatsOut | null }) {
+export function MonitorView() {
+  const { data: stats, isError } = useStats()
+
+  if (isError) {
+    return <ErrorNotice>Impossibile caricare le statistiche dal backend.</ErrorNotice>
+  }
   if (!stats) return <EmptyState>Caricamento delle statistiche…</EmptyState>
 
   return (

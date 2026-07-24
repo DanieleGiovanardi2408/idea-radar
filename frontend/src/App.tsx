@@ -1,26 +1,32 @@
+import { useLayoutEffect, useRef, useState } from 'react'
 import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from 'react'
-import { api } from './api'
+  Navigate,
+  NavLink,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from 'react-router-dom'
 import { IdeaDetail } from './components/IdeaDetail'
-import type { IdeaOut, StatsOut, TopicOut, TrendOut } from './types'
+import {
+  useHealth,
+  useIdeas,
+  useRunWatcher,
+  useStartRun,
+  useStats,
+  useTopics,
+} from './hooks/useRadarData'
 import { MonitorView } from './views/MonitorView'
 import { RadarView } from './views/RadarView'
 import { TopicsView } from './views/TopicsView'
 import { TrendsView } from './views/TrendsView'
 
-type View = 'radar' | 'topics' | 'trends' | 'monitor'
-type BackendStatus = 'loading' | 'ok' | 'error'
-
-const VIEWS: [View, string][] = [
-  ['radar', 'Radar'],
-  ['topics', 'Topic'],
-  ['trends', 'Trend'],
-  ['monitor', 'Monitor'],
+const TABS: [string, string][] = [
+  ['/radar', 'Radar'],
+  ['/topics', 'Topic'],
+  ['/trends', 'Trend'],
+  ['/monitor', 'Monitor'],
 ]
 
 /* Il marchio: un mini-radar vivo, la stessa spazzata del quadrante. */
@@ -49,25 +55,56 @@ function RadarMark() {
 }
 
 function App() {
-  const [view, setView] = useState<View>('radar')
-  const [backend, setBackend] = useState<BackendStatus>('loading')
-  const [ideas, setIdeas] = useState<IdeaOut[]>([])
-  const [topics, setTopics] = useState<TopicOut[]>([])
-  const [trends, setTrends] = useState<TrendOut[]>([])
-  const [stats, setStats] = useState<StatsOut | null>(null)
-  const [selected, setSelected] = useState<number | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const pollRef = useRef<number | null>(null)
+  const { pathname } = useLocation()
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // La cache di React Query fa da stato condiviso: queste stesse query
+  // alimentano anche le viste, senza fetch duplicate.
+  const health = useHealth()
+  const { data: stats } = useStats()
+  const { data: ideas } = useIdeas()
+  const { data: topics } = useTopics()
+  // Montato una volta sola: al passaggio running → done invalida le risorse.
+  const running = useRunWatcher()
+
+  const startRun = useStartRun()
+  const [runError, setRunError] = useState<string | null>(null)
+
+  const backend =
+    health.isPending ? 'loading' : health.data?.status === 'ok' ? 'ok' : 'error'
+
+  /* Drawer deep-linkabile: ?idea=<id> vive sopra qualunque vista. L'apertura
+     è una nuova entry di history, quindi il back del browser lo chiude. */
+  const ideaParam = searchParams.get('idea')
+  const parsedIdea = ideaParam !== null ? Number(ideaParam) : NaN
+  const selected = Number.isInteger(parsedIdea) ? parsedIdea : null
+
+  const openIdea = (id: number) => {
+    const next = new URLSearchParams(searchParams)
+    next.set('idea', String(id))
+    setSearchParams(next)
+  }
+  const closeIdea = () => {
+    const next = new URLSearchParams(searchParams)
+    next.delete('idea')
+    // replace: chiudere non deve aggiungere un'altra entry alla history
+    setSearchParams(next, { replace: true })
+  }
 
   /* Indicatore scorrevole della navigazione */
   const navRef = useRef<HTMLElement | null>(null)
-  const tabRefs = useRef<Partial<Record<View, HTMLButtonElement | null>>>({})
+  const tabRefs = useRef<Record<string, HTMLAnchorElement | null>>({})
   const [indicator, setIndicator] = useState({ left: 0, width: 0 })
+
+  const counts: Record<string, number | undefined> = {
+    '/radar': ideas?.length,
+    '/topics': topics?.length,
+  }
 
   useLayoutEffect(() => {
     const measure = () => {
-      const tab = tabRefs.current[view]
+      const tab = tabRefs.current[pathname]
       const nav = navRef.current
       if (!tab || !nav) return
       const tabBox = tab.getBoundingClientRect()
@@ -79,66 +116,19 @@ function App() {
     // il font display arriva async: rimisura quando è pronto
     document.fonts?.ready.then(measure).catch(() => undefined)
     return () => window.removeEventListener('resize', measure)
-  }, [view])
+    // i contatori arrivano async e cambiano la larghezza dei tab
+  }, [pathname, ideas?.length, topics?.length])
 
-  const loadAll = useCallback(async () => {
-    const [i, t, tr, s] = await Promise.all([
-      api.ideas(),
-      api.topics(),
-      api.trends(),
-      api.stats(),
-    ])
-    setIdeas(i)
-    setTopics(t)
-    setTrends(tr)
-    setStats(s)
-  }, [])
-
-  useEffect(() => {
-    api
-      .health()
-      .then((d) => setBackend(d.status === 'ok' ? 'ok' : 'error'))
-      .catch(() => setBackend('error'))
-    loadAll()
-      .catch(() => setError('Impossibile caricare i dati dal backend.'))
-      .finally(() => setLoading(false))
-  }, [loadAll])
-
-  const running = stats?.last_run?.status === 'running'
-
-  // Mentre un run gira, aggiorna tutto ogni 2s: è il "live" del monitor.
-  useEffect(() => {
-    if (!running) {
-      if (pollRef.current) {
-        window.clearInterval(pollRef.current)
-        pollRef.current = null
-      }
-      return
-    }
-    pollRef.current = window.setInterval(() => {
-      loadAll().catch(() => undefined)
-    }, 2000)
-    return () => {
-      if (pollRef.current) window.clearInterval(pollRef.current)
-      pollRef.current = null
-    }
-  }, [running, loadAll])
-
-  const startRun = useCallback(async () => {
-    setError(null)
-    try {
-      const res = await api.startRun()
-      if (!res.started) setError(res.detail)
-      await loadAll()
-      setView('monitor')
-    } catch {
-      setError('Impossibile avviare il run. Il backend è attivo?')
-    }
-  }, [loadAll])
-
-  const counts: Partial<Record<View, number>> = {
-    radar: ideas.length,
-    topics: topics.length,
+  const onStartRun = () => {
+    setRunError(null)
+    startRun.mutate(undefined, {
+      onSuccess: (res) => {
+        if (res.started) navigate('/monitor')
+        else setRunError(res.detail)
+      },
+      onError: () =>
+        setRunError('Impossibile avviare il run. Il backend è attivo?'),
+    })
   }
 
   return (
@@ -184,8 +174,8 @@ function App() {
                   : 'Verifica…'}
             </span>
             <button
-              onClick={startRun}
-              disabled={running}
+              onClick={onStartRun}
+              disabled={running || startRun.isPending}
               className="group relative overflow-hidden rounded-xl bg-gradient-to-r from-phosphor to-signal px-4 py-2 font-display text-sm font-semibold tracking-tight text-abyss shadow-[0_0_24px_-6px_rgba(46,232,162,0.7)] transition-all duration-300 hover:shadow-[0_0_36px_-6px_rgba(46,232,162,0.9)] hover:brightness-110 disabled:cursor-not-allowed disabled:from-slate-800 disabled:to-slate-800 disabled:text-slate-500 disabled:shadow-none"
             >
               <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/40 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
@@ -203,47 +193,49 @@ function App() {
             className="absolute top-1.5 bottom-1.5 rounded-xl bg-phosphor/12 shadow-[inset_0_0_0_1px_rgba(46,232,162,0.28),0_0_18px_-4px_rgba(46,232,162,0.35)] transition-all duration-300 ease-out"
             style={{ left: indicator.left, width: indicator.width }}
           />
-          {VIEWS.map(([value, label]) => (
-            <button
-              key={value}
+          {TABS.map(([to, label]) => (
+            <NavLink
+              key={to}
+              to={to}
               ref={(el) => {
-                tabRefs.current[value] = el
+                tabRefs.current[to] = el
               }}
-              onClick={() => setView(value)}
-              className={`relative z-10 flex-1 rounded-xl px-3.5 py-2 font-display text-sm font-medium tracking-tight transition-colors duration-300 sm:flex-none ${
-                view === value ? 'text-phosphor' : 'text-slate-500 hover:text-slate-300'
-              }`}
+              className={({ isActive }) =>
+                `relative z-10 flex-1 rounded-xl px-3.5 py-2 text-center font-display text-sm font-medium tracking-tight transition-colors duration-300 sm:flex-none ${
+                  isActive ? 'text-phosphor' : 'text-slate-500 hover:text-slate-300'
+                }`
+              }
             >
               {label}
-              {counts[value] !== undefined && counts[value]! > 0 && (
+              {counts[to] !== undefined && counts[to]! > 0 && (
                 <span
                   className={`ml-1.5 text-xs tabular-nums ${
-                    view === value ? 'text-phosphor/60' : 'text-slate-600'
+                    pathname === to ? 'text-phosphor/60' : 'text-slate-600'
                   }`}
                 >
-                  {counts[value]}
+                  {counts[to]}
                 </span>
               )}
-            </button>
+            </NavLink>
           ))}
         </nav>
 
-        {error && (
+        {runError && (
           <p className="view-enter mt-4 rounded-xl border border-flare/25 bg-flare/5 px-3.5 py-2.5 text-sm text-flare">
-            {error}
+            {runError}
           </p>
         )}
 
         <main className="mt-6">
-          <div key={view} className="view-enter">
-            {view === 'radar' && (
-              <RadarView ideas={ideas} loading={loading} onSelect={setSelected} />
-            )}
-            {view === 'topics' && (
-              <TopicsView topics={topics} ideas={ideas} onSelect={setSelected} />
-            )}
-            {view === 'trends' && <TrendsView trends={trends} />}
-            {view === 'monitor' && <MonitorView stats={stats} />}
+          <div key={pathname} className="view-enter">
+            <Routes>
+              <Route path="/" element={<Navigate to="/radar" replace />} />
+              <Route path="/radar" element={<RadarView onSelect={openIdea} />} />
+              <Route path="/topics" element={<TopicsView onSelect={openIdea} />} />
+              <Route path="/trends" element={<TrendsView />} />
+              <Route path="/monitor" element={<MonitorView />} />
+              <Route path="*" element={<Navigate to="/radar" replace />} />
+            </Routes>
           </div>
         </main>
 
@@ -254,7 +246,7 @@ function App() {
       </div>
 
       {selected !== null && (
-        <IdeaDetail ideaId={selected} onClose={() => setSelected(null)} />
+        <IdeaDetail ideaId={selected} onClose={closeIdea} />
       )}
     </div>
   )

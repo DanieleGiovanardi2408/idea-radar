@@ -68,6 +68,66 @@ export function IconX({ className = '' }: { className?: string }) {
   )
 }
 
+export function IconPin({
+  filled = false,
+  className = '',
+}: {
+  filled?: boolean
+  className?: string
+}) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={`size-3.5 ${className}`}>
+      <path
+        d="M6 1.5h4l-.6 4.2 2.1 2.3v1.5H4.5V8l2.1-2.3L6 1.5Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+        fill={filled ? 'currentColor' : 'none'}
+      />
+      <line
+        x1="8"
+        y1="9.5"
+        x2="8"
+        y2="14.5"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+export function IconDismiss({ className = '' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={`size-3.5 ${className}`}>
+      <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.3" />
+      <line
+        x1="4.6"
+        y1="11.4"
+        x2="11.4"
+        y2="4.6"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+export function IconRestore({ className = '' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={`size-3.5 ${className}`}>
+      <path
+        d="M3 8a5 5 0 1 0 1.5-3.6M3 2.5V5h2.5"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 /* ---- Superfici ------------------------------------------------------------- */
 
 export function Badge({
@@ -342,6 +402,15 @@ function MiniRadar() {
       </g>
       <circle cx="48" cy="48" r="2.4" fill="currentColor" />
     </svg>
+  )
+}
+
+/* Errore di caricamento di una singola risorsa: ogni vista ha il suo. */
+export function ErrorNotice({ children }: { children: ReactNode }) {
+  return (
+    <p className="view-enter rounded-xl border border-flare/25 bg-flare/5 px-3.5 py-2.5 text-sm text-flare">
+      {children}
+    </p>
   )
 }
 
