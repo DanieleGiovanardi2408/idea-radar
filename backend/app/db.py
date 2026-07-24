@@ -45,9 +45,34 @@ def get_engine() -> Engine:
     return _engine
 
 
+# Colonne aggiunte DOPO la prima release: ``create_all`` crea le tabelle nuove
+# complete ma non altera quelle esistenti, quindi su un DB già in uso vanno
+# aggiunte a mano. SQLite supporta solo ADD COLUMN: per questo caso basta.
+_IDEA_USER_COLUMNS: dict[str, str] = {
+    "pinned": "BOOLEAN NOT NULL DEFAULT 0",
+    "dismissed_at": "TIMESTAMP",
+    "seen_at": "TIMESTAMP",
+    "note": "TEXT",
+}
+
+
+def _migrate(engine: Engine) -> None:
+    """Migrazione additiva: aggiunge le colonne mancanti alle tabelle esistenti."""
+    with engine.connect() as conn:
+        existing = {
+            row[1] for row in conn.exec_driver_sql("PRAGMA table_info(ideas)")
+        }
+        for column, ddl in _IDEA_USER_COLUMNS.items():
+            if existing and column not in existing:
+                conn.exec_driver_sql(f"ALTER TABLE ideas ADD COLUMN {column} {ddl}")
+        conn.commit()
+
+
 def init_db(engine: Engine | None = None) -> None:
-    """Crea le tabelle se non esistono."""
-    SQLModel.metadata.create_all(engine or get_engine())
+    """Crea le tabelle se non esistono e applica le migrazioni additive."""
+    engine = engine or get_engine()
+    SQLModel.metadata.create_all(engine)
+    _migrate(engine)
 
 
 @contextmanager

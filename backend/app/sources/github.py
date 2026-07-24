@@ -12,9 +12,22 @@ import httpx
 from app.appconfig import AppConfig, SourceConfig
 from app.config import Settings
 from app.models import Item
+from app.sources.base import register_source
+from app.sources.profiles import SourceProfile, register_profile
 
 SEARCH_URL = "https://api.github.com/search/repositories"
 SOURCE_NAME = "github"
+
+PROFILE = SourceProfile(
+    velocity_cap=30.0,  # stelle/giorno che valgono heat = 1.0
+    saturation_cap=60_000.0,
+    credibility_base=0.45,
+    live_counter=True,  # le stelle crescono nel tempo: il delta misura crescita reale
+    velocity_per_age=True,  # euristica cold-start: stelle/giorno medie di vita
+    maturity_in_saturation=True,  # un repo è "maturo" se popolare E vecchio
+    engagement_weights={"stars": 1.0, "forks": 2.0},
+)
+register_profile(SOURCE_NAME, PROFILE)
 
 
 class GitHubSource:
@@ -93,3 +106,6 @@ class GitHubSource:
             created_at=created_at,
             raw_json=repo,
         )
+
+
+register_source("github", GitHubSource)

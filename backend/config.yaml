@@ -42,6 +42,21 @@ sources:
       - https://changelog.com/feed
       - https://simonwillison.net/atom/everything/      # AI e dev tools
       - https://hnrss.org/newest?q=self-hosted          # rimpiazza il flaky r/selfhosted
+  # Paper freschi da arXiv: il lato "ricerca" del radar. API Atom gratuita,
+  # senza chiave; una sola richiesta per run (categorie in OR in un'unica query).
+  - name: arxiv
+    type: arxiv
+    limit: 25        # quanti paper più recenti
+    enabled: true
+    categories:      # categorie arXiv in OR; se vuote si usano le keywords globali
+      - cs.AI
+      - cs.SE
+  # Lanci di prodotto da Product Hunt (GraphQL v2, token developer gratuito).
+  # richiede PRODUCTHUNT_TOKEN in .env: abilitala dopo averlo impostato.
+  - name: producthunt
+    type: producthunt
+    limit: 25        # quanti lanci più recenti
+    enabled: false
 
 # Parole chiave per filtrare/cercare le idee e per il punteggio di "fit".
 keywords:

@@ -24,6 +24,9 @@ class SourceConfig(BaseModel):
     # a ogni run) e punti minimi perché una storia non sia rumore.
     lookback_hours: float = 48.0
     min_points: int = 5
+    # Solo per type: arxiv — categorie arXiv in OR (es. ["cs.AI", "cs.SE"]);
+    # se vuote si ripiega sulle keywords globali di config.
+    categories: list[str] = Field(default_factory=list)
 
 
 class ClusteringConfig(BaseModel):

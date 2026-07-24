@@ -1,20 +1,44 @@
-"""Query di lettura condivise tra API e CLI."""
+"""Query di lettura condivise tra API e CLI.
+
+Ordinamento, filtri e paginazione stanno in SQL, non in Python: caricare
+tutte le idee (o tutti gli score) in memoria per poi tagliarli funzionava
+con dieci run, non con mesi di run schedulati.
+"""
 
 from collections import defaultdict
 
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app.models import Idea, IdeaStatus, Item, Run, RunStatus, Score, Topic, TopicStat
 
 
+def _latest_score_run_subq():
+    """Subquery (idea_id, run_id) dell'ULTIMO score di ogni idea."""
+    return (
+        select(Score.idea_id, func.max(Score.run_id).label("run_id"))
+        .group_by(Score.idea_id)
+        .subquery()
+    )
+
+
 def latest_scores(session: Session) -> dict[int, Score]:
-    """Mappa idea_id -> Score del run più recente."""
-    latest: dict[int, Score] = {}
-    for score in session.exec(select(Score)).all():
-        current = latest.get(score.idea_id)
-        if current is None or score.run_id > current.run_id:
-            latest[score.idea_id] = score
-    return latest
+    """Mappa idea_id -> Score del run più recente (una query, niente full scan)."""
+    subq = _latest_score_run_subq()
+    stmt = select(Score).join(
+        subq,
+        (Score.idea_id == subq.c.idea_id) & (Score.run_id == subq.c.run_id),
+    )
+    return {score.idea_id: score for score in session.exec(stmt).all()}
+
+
+def latest_score_for(session: Session, idea_id: int) -> Score | None:
+    """Ultimo score di UNA idea (per il dettaglio: inutile mappare tutto)."""
+    return session.exec(
+        select(Score)
+        .where(Score.idea_id == idea_id)
+        .order_by(Score.run_id.desc())
+    ).first()
 
 
 def top_ideas(
@@ -22,31 +46,56 @@ def top_ideas(
     limit: int = 10,
     status: IdeaStatus | None = None,
     topic_id: int | None = None,
+    offset: int = 0,
+    include_dismissed: bool = False,
 ) -> list[tuple[Idea, Score | None]]:
-    """Idee ordinate per composite decrescente, con il loro ultimo score.
+    """Idee con il loro ultimo score: pinnate prima, poi composite decrescente.
 
     Senza filtro esplicito le ARCHIVED restano fuori: il Radar mostra il
-    vivo; le archiviate si chiedono apposta con ``status=ARCHIVED``.
+    vivo; le archiviate si chiedono apposta con ``status=ARCHIVED``. Le idee
+    scartate a mano (``dismissed_at``) restano fuori da OGNI vista finché non
+    si chiede ``include_dismissed`` — un dismiss è una decisione dell'utente,
+    non della pipeline.
     """
-    latest = latest_scores(session)
-    rows = [
-        (idea, latest.get(idea.id))
-        for idea in session.exec(select(Idea)).all()
-        if (
-            idea.status != IdeaStatus.ARCHIVED
-            if status is None
-            else idea.status == status
+    subq = _latest_score_run_subq()
+    stmt = (
+        select(Idea, Score)
+        .join(subq, subq.c.idea_id == Idea.id, isouter=True)
+        .join(
+            Score,
+            (Score.idea_id == subq.c.idea_id) & (Score.run_id == subq.c.run_id),
+            isouter=True,
         )
-        and (topic_id is None or idea.topic_id == topic_id)
-    ]
-    rows.sort(key=lambda r: r[1].composite if r[1] else 0.0, reverse=True)
-    return rows[:limit]
+    )
+    if status is None:
+        stmt = stmt.where(Idea.status != IdeaStatus.ARCHIVED)
+    else:
+        stmt = stmt.where(Idea.status == status)
+    if topic_id is not None:
+        stmt = stmt.where(Idea.topic_id == topic_id)
+    if not include_dismissed:
+        stmt = stmt.where(Idea.dismissed_at.is_(None))  # type: ignore[union-attr]
+    stmt = (
+        stmt.order_by(
+            Idea.pinned.desc(),  # type: ignore[union-attr]
+            func.coalesce(Score.composite, 0.0).desc(),
+            Idea.id,
+        )
+        .offset(offset)
+        .limit(limit)
+    )
+    return [(idea, score) for idea, score in session.exec(stmt).all()]
 
 
 def idea_history(session: Session, idea_id: int) -> list[Score]:
     """Tutti gli score di un'idea, dal run più vecchio al più recente."""
-    scores = session.exec(select(Score).where(Score.idea_id == idea_id)).all()
-    return sorted(scores, key=lambda s: s.run_id)
+    return list(
+        session.exec(
+            select(Score)
+            .where(Score.idea_id == idea_id)
+            .order_by(Score.run_id.asc())
+        ).all()
+    )
 
 
 def topics_overview(session: Session) -> list[dict]:
@@ -54,9 +103,13 @@ def topics_overview(session: Session) -> list[dict]:
     latest = latest_scores(session)
     by_topic: dict[int, list[Idea]] = defaultdict(list)
     for idea in session.exec(select(Idea)).all():
-        # Le archiviate non contano: i topic descrivono ciò che è vivo ora
-        # (la loro storia resta nei TopicStat già scritti).
-        if idea.topic_id is not None and idea.status != IdeaStatus.ARCHIVED:
+        # Le archiviate e le scartate a mano non contano: i topic descrivono
+        # ciò che è vivo ora (la storia resta nei TopicStat già scritti).
+        if (
+            idea.topic_id is not None
+            and idea.status != IdeaStatus.ARCHIVED
+            and idea.dismissed_at is None
+        ):
             by_topic[idea.topic_id].append(idea)
 
     overview: list[dict] = []

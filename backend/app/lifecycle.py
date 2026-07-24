@@ -23,13 +23,17 @@ def archive_stale_ideas(session: Session, older_than_days: float) -> int:
     Ritorna quante ne ha archiviate. Con ``older_than_days <= 0`` è spenta.
     Gira in coda a ogni run (già dentro il lock), quindi non serve schedularla
     a parte: finché il radar raccoglie, l'archivio si tiene da solo.
+    Le idee PINNATE sono escluse: un pin è la dichiarazione esplicita
+    dell'utente che quell'idea gli interessa, anche a segnali spenti.
     """
     if older_than_days <= 0:
         return 0
     cutoff = utcnow() - timedelta(days=older_than_days)
     stale = session.exec(
         select(Idea).where(
-            Idea.status != IdeaStatus.ARCHIVED, Idea.last_seen < cutoff
+            Idea.status != IdeaStatus.ARCHIVED,
+            Idea.last_seen < cutoff,
+            Idea.pinned == False,  # noqa: E712 — confronto SQL, non Python
         )
     ).all()
     for idea in stale:

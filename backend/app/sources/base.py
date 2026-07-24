@@ -1,4 +1,4 @@
-"""Astrazione comune dei collector e factory per tipo di fonte."""
+"""Astrazione comune dei collector, registry dei tipi e factory."""
 
 from typing import Protocol
 
@@ -15,6 +15,32 @@ class Source(Protocol):
     def fetch(self) -> list[Item]: ...
 
 
+# ``type`` di config.yaml -> classe collector. Non è hardcoded qui: ogni
+# modulo collector si registra da solo con ``register_source`` all'import
+# (``load_collectors`` li importa tutti). Una fonte nuova = un modulo nuovo.
+_SOURCE_TYPES: dict[str, type] = {}
+
+
+def register_source(type_name: str, cls: type) -> None:
+    """Registra un collector per il ``type`` usato in config.yaml."""
+    _SOURCE_TYPES[type_name] = cls
+
+
+def load_collectors() -> None:
+    """Importa i moduli dei collector: l'import registra classi e profili.
+
+    Import locale (non in testa al modulo) per evitare cicli di import.
+    """
+    from app.sources import (  # noqa: F401
+        arxiv,
+        github,
+        hackernews,
+        hn_algolia,
+        producthunt,
+        rss,
+    )
+
+
 def create_source(
     source_cfg: SourceConfig,
     app_config: AppConfig,
@@ -25,20 +51,9 @@ def create_source(
 
     ``client`` è iniettabile per i test (httpx.MockTransport).
     """
-    # Import locale per evitare cicli di import.
-    from app.sources.github import GitHubSource
-    from app.sources.hackernews import HackerNewsSource
-    from app.sources.hn_algolia import HnAlgoliaSource
-    from app.sources.rss import RssSource
-
-    registry: dict[str, type] = {
-        "hn": HackerNewsSource,
-        "hn_algolia": HnAlgoliaSource,
-        "github": GitHubSource,
-        "rss": RssSource,
-    }
+    load_collectors()
     try:
-        cls = registry[source_cfg.type]
+        cls = _SOURCE_TYPES[source_cfg.type]
     except KeyError as exc:
         raise ValueError(f"Tipo di fonte sconosciuto: {source_cfg.type!r}") from exc
 

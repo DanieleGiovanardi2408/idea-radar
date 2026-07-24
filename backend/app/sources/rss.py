@@ -24,10 +24,17 @@ import httpx
 from app.appconfig import AppConfig, SourceConfig
 from app.config import Settings
 from app.models import Item
+from app.sources.base import register_source
+from app.sources.profiles import SourceProfile, register_profile
 
 logger = logging.getLogger(__name__)
 
 SOURCE_NAME = "rss"
+
+# I feed fotografano l'engagement alla pubblicazione e non lo aggiornano mai:
+# niente live counter, la heat resta sull'euristica. Cap di default prudenti.
+PROFILE = SourceProfile(credibility_base=0.40)
+register_profile(SOURCE_NAME, PROFILE)
 _ATOM = "{http://www.w3.org/2005/Atom}"
 _TAG_RE = re.compile(r"<[^>]+>")
 
@@ -210,3 +217,6 @@ class RssSource:
             created_at=_parse_date(published),
             raw_json={"feed": feed_url, "guid": guid},
         )
+
+
+register_source("rss", RssSource)

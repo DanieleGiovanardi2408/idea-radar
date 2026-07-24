@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     github_token: str = ""
+    # Token developer GRATUITO di Product Hunt (https://api.producthunt.com/v2/docs).
+    # Obbligatorio per la fonte "producthunt": senza, il collector alza errore.
+    producthunt_token: str | None = None
     ollama_host: str = "http://localhost:11434"
     # Modello per gli insight testuali (summary/why/difficulty).
     ollama_model: str = "qwen2.5:7b"

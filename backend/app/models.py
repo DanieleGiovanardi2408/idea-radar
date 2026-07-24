@@ -92,6 +92,13 @@ class Idea(SQLModel, table=True):
     topic_id: int | None = Field(default=None, foreign_key="topics.id", index=True)
     # Centroide degli embedding degli item collegati: identità semantica dell'idea.
     centroid_json: list[float] | None = Field(default=None, sa_column=Column(JSON))
+    # --- Stato UTENTE: azioni manuali, ortogonali a ``status`` (che è della
+    # pipeline). I run non toccano MAI questi campi: un dismiss sopravvive ai
+    # run successivi, un pin esclude l'idea dall'auto-archiviazione.
+    pinned: bool = Field(default=False)
+    dismissed_at: datetime | None = None  # scartata a mano: fuori dalle viste
+    seen_at: datetime | None = None  # ultima apertura del dettaglio
+    note: str | None = None  # appunto personale
 
     items: list[Item] = Relationship(back_populates="ideas", link_model=IdeaItem)
     topic: Topic | None = Relationship(back_populates="ideas")

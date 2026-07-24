@@ -7,9 +7,20 @@ import httpx
 from app.appconfig import AppConfig, SourceConfig
 from app.config import Settings
 from app.models import Item
+from app.sources.base import register_source
+from app.sources.profiles import SourceProfile, register_profile
 
 BASE_URL = "https://hacker-news.firebaseio.com/v0"
 SOURCE_NAME = "hn"
+
+PROFILE = SourceProfile(
+    velocity_cap=300.0,  # punti+commenti/giorno che valgono heat = 1.0
+    saturation_cap=1_500.0,
+    credibility_base=0.35,
+    live_counter=True,  # punti e commenti crescono finché la storia è viva
+    engagement_weights={"score": 1.0, "comments": 1.0},
+)
+register_profile(SOURCE_NAME, PROFILE)
 
 
 class HackerNewsSource:
@@ -73,3 +84,6 @@ class HackerNewsSource:
             created_at=created_at,
             raw_json=raw,
         )
+
+
+register_source("hn", HackerNewsSource)

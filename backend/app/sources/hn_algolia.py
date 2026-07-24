@@ -26,6 +26,7 @@ import httpx
 from app.appconfig import AppConfig, SourceConfig
 from app.config import Settings
 from app.models import Item
+from app.sources.base import register_source
 
 logger = logging.getLogger(__name__)
 
@@ -142,3 +143,7 @@ class HnAlgoliaSource:
             created_at=created_at,
             raw_json=hit,
         )
+
+
+# Nessun register_profile: condivide SOURCE_NAME (e quindi il profilo) di "hn".
+register_source("hn_algolia", HnAlgoliaSource)

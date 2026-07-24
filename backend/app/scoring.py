@@ -27,24 +27,15 @@ from pydantic import BaseModel
 from app.appconfig import AppConfig
 from app.llm import IdeaInsight
 from app.models import Difficulty, IdeaStatus, Item, ItemStat, utcnow
+from app.sources.profiles import profile_for
 
 _QUALITY_METRICS = ("heat", "credibility", "feasibility", "opportunity")
 
-# Velocità che vale heat = 1.0, per fonte.
-_VELOCITY_CAP = {"github": 30.0, "hn": 300.0}  # stelle/giorno | punti+commenti
-_DEFAULT_VELOCITY_CAP = 100.0
+# I parametri per-fonte (cap di velocità e saturazione, credibilità di base,
+# live counter, riduzione dell'engagement) NON vivono più qui: ogni collector
+# dichiara il proprio SourceProfile in app/sources/<fonte>.py e lo scoring lo
+# legge con profile_for(item.source). Una fonte nuova non tocca questo modulo.
 
-# Fonti il cui engagement è un CONTATORE VIVO (stelle, punti): lì un delta tra
-# osservazioni misura crescita reale. I feed RSS invece fotografano il valore
-# alla pubblicazione e non lo aggiornano mai: il loro delta è zero per
-# costruzione, non perché l'item si sia fermato — quindi restano sull'euristica.
-_LIVE_COUNTER_SOURCES = frozenset({"github", "hn"})
-
-# Popolarità assoluta oltre la quale una cosa è "affermata".
-_SATURATION_CAP = {"github": 60_000.0, "hn": 1_500.0}
-_DEFAULT_SATURATION_CAP = 2_000.0
-
-_SOURCE_CREDIBILITY = {"hn": 0.35, "github": 0.45, "rss": 0.40}
 _DIFFICULTY_FEASIBILITY = {
     Difficulty.LOW: 0.80,
     Difficulty.MED: 0.55,
@@ -81,25 +72,21 @@ def _age_days(item: Item) -> float:
 
 
 def absolute_engagement(item: Item) -> float:
-    """Riduzione scalare dell'engagement, per fonte (pubblica: la usa anche
-    la pipeline per fotografare l'engagement di ogni run in ``ItemStat``)."""
-    e = item.engagement_json or {}
-    if item.source == "hn":
-        return float(e.get("score", 0) + e.get("comments", 0))
-    if item.source == "github":
-        return float(e.get("stars", 0) + 2 * e.get("forks", 0))
-    return float(sum(v for v in e.values() if isinstance(v, (int, float))))
+    """Riduzione scalare dell'engagement, secondo il profilo della fonte
+    (pubblica: la usa anche la pipeline per fotografare l'engagement di ogni
+    run in ``ItemStat``)."""
+    return profile_for(item.source).engagement(item.engagement_json)
 
 
 def _velocity(item: Item) -> float:
     """Stima *euristica* della velocità, quando la storia non c'è (cold start).
 
-    Su GitHub dividiamo per l'età del repo (stelle/giorno medie di vita). Su HN
-    e RSS no: la front page è per costruzione fresca, quindi l'engagement
-    grezzo è già di fatto una misura di velocità.
+    Dove il profilo lo chiede (repo) dividiamo per l'età (stelle/giorno medie
+    di vita). Su front page e feed no: sono freschi per costruzione, quindi
+    l'engagement grezzo è già di fatto una misura di velocità.
     """
     absolute = absolute_engagement(item)
-    if item.source == "github":
+    if profile_for(item.source).velocity_per_age:
         return absolute / _age_days(item)
     return absolute
 
@@ -140,8 +127,9 @@ def _heat(
     observations: Sequence[ItemStat] | None = None,
 ) -> float:
     """Heat "a delta" dove possibile, euristica dove la storia non c'è ancora."""
-    cap = _VELOCITY_CAP.get(item.source, _DEFAULT_VELOCITY_CAP)
-    if observations and item.source in _LIVE_COUNTER_SOURCES:
+    profile = profile_for(item.source)
+    cap = profile.velocity_cap
+    if observations and profile.live_counter:
         measured = _delta_velocity(
             observations,
             window_days=config.scoring.heat_window_days,
@@ -154,9 +142,9 @@ def _heat(
 
 def _saturation(item: Item) -> float:
     """Quanto la cosa è già affermata: alta = mercato chiuso, non opportunità."""
-    cap = _SATURATION_CAP.get(item.source, _DEFAULT_SATURATION_CAP)
-    popularity = _saturate(absolute_engagement(item), cap)
-    if item.source != "github":
+    profile = profile_for(item.source)
+    popularity = _saturate(absolute_engagement(item), profile.saturation_cap)
+    if not profile.maturity_in_saturation:
         return popularity
     # Un repo è "maturo" se è popolare *e* vecchio: 2 anni satura il fattore età.
     maturity = _clamp(_age_days(item) / 730.0)
@@ -210,7 +198,7 @@ def score_item(
     saturation = _saturation(item)
 
     credibility = _clamp(
-        _SOURCE_CREDIBILITY.get(item.source, 0.30)
+        profile_for(item.source).credibility_base
         + 0.30 * heat
         + (0.10 if item.author else 0.0)
     )

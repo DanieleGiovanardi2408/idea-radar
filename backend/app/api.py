@@ -11,12 +11,13 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.db import get_session, init_db
-from app.models import Idea, IdeaStatus, Run
+from app.models import Idea, IdeaStatus, Run, utcnow
 from app.pipeline import execute_run
 from app.queries import (
     idea_history,
-    latest_scores,
+    latest_score_for,
     monitor_stats,
+    top_ideas,
     topic_trends,
     topics_overview,
 )
@@ -72,6 +73,11 @@ class IdeaOut(BaseModel):
     n_items: int = 0
     first_seen: datetime | None = None
     last_seen: datetime | None = None
+    # Stato utente (azioni manuali: pin, dismiss, visto, nota).
+    pinned: bool = False
+    dismissed_at: datetime | None = None
+    seen_at: datetime | None = None
+    note: str | None = None
     items: list[ItemOut] = []
 
 
@@ -154,6 +160,15 @@ class RunStarted(BaseModel):
     detail: str
 
 
+class IdeaUpdate(BaseModel):
+    """Azioni utente su un'idea. I campi assenti non vengono toccati."""
+
+    pinned: bool | None = None
+    dismissed: bool | None = None  # True scarta, False ripristina
+    seen: bool | None = None  # True marca come vista adesso
+    note: str | None = None  # una stringa imposta la nota, null la cancella
+
+
 # ---- Serializzazione -------------------------------------------------------
 
 
@@ -195,6 +210,10 @@ def _idea_out(idea: Idea, score, model=IdeaOut):
         n_items=len(idea.items),
         first_seen=idea.first_seen,
         last_seen=idea.last_seen,
+        pinned=idea.pinned,
+        dismissed_at=idea.dismissed_at,
+        seen_at=idea.seen_at,
+        note=idea.note,
         items=[
             ItemOut(
                 source=it.source,
@@ -223,21 +242,23 @@ def list_ideas(
     status: IdeaStatus | None = None,
     topic_id: int | None = None,
     limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    include_dismissed: bool = False,
 ) -> list[IdeaOut]:
-    latest = latest_scores(session)
-    rows = [
-        _idea_out(idea, latest.get(idea.id))
-        for idea in session.exec(select(Idea)).all()
-        # Default: solo il vivo. Le archiviate si chiedono con ?status=archived.
-        if (
-            idea.status != IdeaStatus.ARCHIVED
-            if status is None
-            else idea.status == status
-        )
-        and (topic_id is None or idea.topic_id == topic_id)
-    ]
-    rows.sort(key=lambda r: r.composite, reverse=True)
-    return rows[:limit]
+    """Idee ordinate (pinnate prima, poi composite): filtri e paginazione in SQL.
+
+    Default: solo il vivo. Le archiviate si chiedono con ``?status=archived``,
+    le scartate a mano con ``?include_dismissed=true``.
+    """
+    rows = top_ideas(
+        session,
+        limit=limit,
+        status=status,
+        topic_id=topic_id,
+        offset=offset,
+        include_dismissed=include_dismissed,
+    )
+    return [_idea_out(idea, score) for idea, score in rows]
 
 
 @app.get("/ideas/{idea_id}", response_model=IdeaDetailOut)
@@ -245,8 +266,7 @@ def get_idea(idea_id: int, session: Session = Depends(get_db)) -> IdeaDetailOut:
     idea = session.get(Idea, idea_id)
     if idea is None:
         raise HTTPException(status_code=404, detail="Idea non trovata")
-    latest = latest_scores(session)
-    detail = _idea_out(idea, latest.get(idea.id), model=IdeaDetailOut)
+    detail = _idea_out(idea, latest_score_for(session, idea_id), model=IdeaDetailOut)
     detail.history = [
         ScorePoint(
             run_id=s.run_id,
@@ -260,6 +280,37 @@ def get_idea(idea_id: int, session: Session = Depends(get_db)) -> IdeaDetailOut:
         for s in idea_history(session, idea_id)
     ]
     return detail
+
+
+@app.patch("/ideas/{idea_id}", response_model=IdeaOut)
+def update_idea(
+    idea_id: int, payload: IdeaUpdate, session: Session = Depends(get_db)
+) -> IdeaOut:
+    """Azioni utente su un'idea: pin, dismiss, visto, nota.
+
+    Stato UTENTE, ortogonale allo ``status`` della pipeline: i run non lo
+    toccano mai. ``dismissed: true`` mette il timestamp (e l'idea esce dalle
+    viste), ``false`` lo azzera; ``seen: true`` marca la visita adesso;
+    ``note`` con stringa imposta l'appunto, con ``null`` esplicito lo cancella.
+    """
+    idea = session.get(Idea, idea_id)
+    if idea is None:
+        raise HTTPException(status_code=404, detail="Idea non trovata")
+
+    provided = payload.model_fields_set
+    if payload.pinned is not None:
+        idea.pinned = payload.pinned
+    if payload.dismissed is not None:
+        idea.dismissed_at = utcnow() if payload.dismissed else None
+    if payload.seen:
+        idea.seen_at = utcnow()
+    if "note" in provided:  # distingue "assente" (non toccare) da null (cancella)
+        idea.note = payload.note
+
+    session.add(idea)
+    session.commit()
+    session.refresh(idea)
+    return _idea_out(idea, latest_score_for(session, idea_id))
 
 
 @app.get("/topics", response_model=list[TopicOut])
