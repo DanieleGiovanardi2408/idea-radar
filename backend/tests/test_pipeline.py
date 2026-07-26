@@ -146,3 +146,51 @@ def test_pipeline_survives_failing_source(session: Session) -> None:
     assert run.status == RunStatus.DONE
     assert run.n_items == 1
     assert run.sources_json["ExplodingSource"]["error"]
+
+
+def test_a_source_that_fails_last_still_lands_in_the_monitor(session: Session) -> None:
+    """Regressione: l'errore va scritto subito, non alla prossima fonte che riesce.
+
+    Il test sopra mette la fonte rotta per PRIMA, seguita da una che funziona —
+    ed è per questo che il difetto è passato: l'errore veniva salvato insieme
+    alle statistiche della fonte successiva. arXiv, ultima della lista in
+    config.yaml, falliva a ogni run senza comparire da nessuna parte.
+    """
+    run = run_pipeline(
+        session,
+        _config(),
+        Settings(),
+        sources=[
+            FakeSource([Item(source="hn", external_id="9", title="ok")]),
+            ExplodingSource(),
+        ],
+        ollama=FakeOllama(),
+        embedder=FakeEmbedder(),
+    )
+
+    assert run.status == RunStatus.DONE
+    assert run.sources_json["ExplodingSource"]["error"] == "fonte down"
+    assert run.sources_json["FakeSource"]["fetched"] == 1
+
+
+def test_an_empty_run_does_not_flatten_the_trends(session: Session) -> None:
+    """Un run senza novità disegna una linea piatta, non un crollo a zero.
+
+    ``avg_composite`` è la qualità *corrente* del topic: si misura sull'ultimo
+    punteggio noto di ogni idea. Contando solo i punteggi nati nel run, ogni
+    topic non toccato veniva fotografato a 0.0 — e un run a vuoto (Mac offline)
+    azzerava in un colpo la serie di tutti i topic.
+    """
+    _run(session, [Item(source="hn", external_id="1", title="ai tool")])
+    first = session.exec(select(TopicStat)).one()
+    assert first.avg_composite > 0
+
+    empty = _run(session, [])  # nessun item raccolto: niente da scorare
+
+    assert empty.status == RunStatus.DONE
+    assert empty.n_items == 0
+    after = session.exec(
+        select(TopicStat).where(TopicStat.run_id == empty.id)
+    ).one()
+    assert after.avg_composite == pytest.approx(first.avg_composite)
+    assert after.n_ideas == first.n_ideas

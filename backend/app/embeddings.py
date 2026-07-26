@@ -9,6 +9,7 @@ vettori si ricade sul comportamento 1 item = 1 idea.
 
 import logging
 import math
+from operator import mul as _mul
 
 import httpx
 
@@ -110,6 +111,27 @@ def cosine(a: Vector, b: Vector) -> float:
     if norm_a == 0 or norm_b == 0:
         return 0.0
     return dot / (norm_a * norm_b)
+
+
+def unit(vector: Vector) -> Vector:
+    """Vettore riportato a norma 1 (invariato se è nullo).
+
+    Su vettori unitari il coseno è il solo prodotto scalare: normalizzare una
+    volta e poi usare ``dot`` costa ~5 volte meno di chiamare ``cosine``, che
+    ricalcola entrambe le norme a ogni confronto. Conta dove i confronti sono
+    quadratici (la ricostruzione delle idee su tutto l'archivio).
+    """
+    norm = math.sqrt(sum(x * x for x in vector))
+    if norm == 0:
+        return list(vector)
+    return [x / norm for x in vector]
+
+
+def dot(a: Vector, b: Vector) -> float:
+    """Prodotto scalare. Su vettori unitari della stessa lunghezza è il coseno."""
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    return sum(map(_mul, a, b))
 
 
 def centroid(vectors: list[Vector]) -> Vector | None:

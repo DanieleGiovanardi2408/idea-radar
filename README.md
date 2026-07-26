@@ -71,6 +71,15 @@ Above `scoring.threshold`, an idea is promoted to `proposed`. Every parameter li
 
 Local embeddings do two jobs with one mechanism: merge different signals that tell the same story into a single idea (deduplication), and group related ideas into topics. Because topics persist between runs, a theme that grows from one run to the next becomes a **trend** — the core of the Trend view.
 
+A signal joins an existing idea only if it passes **two** tests, both against the idea's actual members, never against their average:
+
+- **single link** — it must resemble at least *one* member (`clustering.idea_threshold`);
+- **cohesion** — it must resemble *every* member (`clustering.cohesion_floor`).
+
+The first finds duplicates; the second stops a group from growing by chaining (A resembles B, B resembles C, A and C are strangers). Comparing against the idea's centroid instead — a plain average — is what a naive implementation does, and it fails badly: the more members an idea absorbs, the further its centroid drifts toward the middle of the embedding space, where it is *vaguely similar to everything*. Big ideas then become magnets that grow on their own. In this repo's own archive one idea had swallowed 740 unrelated items that way, and the fix required both a new criterion and [`rebuild-ideas`](#cli) to repair the history.
+
+Thresholds are calibrated against a ground truth of items that appeared on two sources with the same title, not picked by eye — see the comments in [`backend/config.yaml`](backend/config.yaml) for the numbers and the reasoning.
+
 ---
 
 ## The four views
@@ -97,13 +106,13 @@ The interface is a single-page "radar room": a dark, glass-panelled console with
 ## Features
 
 - **Opportunity-first ranking** that rewards momentum over accumulated popularity.
-- **Semantic deduplication** — the same launch on HN, GitHub, and a blog collapses into one idea.
+- **Semantic deduplication** — the same launch on HN, GitHub, and a blog collapses into one idea, with a drift-proof criterion (single link + cohesion, always item-to-item) so a large idea can never turn into a catch-all.
 - **Config-driven sources** — each collector declares its own scoring *profile* (velocity/saturation caps, credibility, whether its engagement is a live counter) next to its code and registers itself on import. Adding a source is one file plus one line of `config.yaml` — no edits to the scorer.
 - **User actions on ideas** — pin, dismiss, mark-as-seen, and free-text notes, all persisted and orthogonal to the pipeline's own status (a run never overwrites your decisions; a pinned idea is never auto-archived).
 - **Local-only LLM** for summaries, "why it matters" notes, and difficulty estimates — nothing is sent to a paid API.
 - **Trends across runs** — topics are tracked over time so you can see what's rising.
-- **Resilient collection** — a rate-limited or broken feed is skipped, never crashes a run; RSS fetching is polite (honest User-Agent, throttling, `Retry-After`).
-- **Cost-aware LLM use** — insights are cached per idea (repeat runs only pay for new content) and clearly off-topic items skip the model entirely (fit-gate).
+- **Resilient collection** — a rate-limited or broken feed is skipped, never crashes a run, and its error is written to the run record straight away, so a source that fails *last* still shows up in the Monitor instead of disappearing. Fetching is polite everywhere: honest User-Agent, redirects followed, throttling, `Retry-After`.
+- **Cost-aware LLM use** — insights are cached per idea (repeat runs only pay for new content), clearly off-topic items skip the model entirely (fit-gate), and topic names are only regenerated for topics that are both big enough to be worth summarising and actually changed since the last run.
 - **Hands-free trend accumulation** — a launchd agent runs the pipeline every few hours while the Mac is awake, with catch-up after sleep/reboot, a cross-process lock, and an Ollama preflight so unattended runs never degrade the data.
 
 ---
@@ -166,6 +175,16 @@ uv run idea-radar stats       # ingestion funnel
 uv run pytest                 # tests
 ```
 
+After changing a clustering threshold, apply it to the archive you already have instead of waiting for it to re-form run by run:
+
+```bash
+uv run idea-radar rebuild-ideas --dry-run   # what the new thresholds would produce
+uv run idea-radar rebuild-ideas             # rebuild ideas, topics and scores
+uv run idea-radar recluster --sweep 0.74,0.78,0.82   # then re-tune topic_threshold
+```
+
+The rebuild re-aggregates the stored items with the current thresholds. No fetching, no embedding, no new LLM calls: items and their engagement history are untouched, and **pins, dismissals, notes and the insights already paid for are carried over** — user state follows the item that gave the idea its name. Ideas, topics, scores and topic stats are rebuilt; scores are rewritten onto the last completed run so the views have numbers immediately. `--dry-run` prints the outcome without writing, and is exact rather than an estimate: preview and rebuild share the same grouping function.
+
 ### Scheduled runs (macOS)
 
 ```bash
@@ -193,7 +212,7 @@ Runtime behaviour lives in [`backend/config.yaml`](backend/config.yaml) — sour
 | `OLLAMA_MODEL` | Insight model (default `qwen2.5:7b`) |
 | `EMBEDDING_MODEL` | Embedding model (default `nomic-embed-text`) |
 
-Three knobs worth knowing: `scoring.threshold` controls how selective the radar is, `clustering.idea_threshold` controls how aggressively duplicate signals merge (higher = only near-identical items collapse), and `scoring.heat_window_days` sets the sliding window the delta-based heat measures velocity over.
+Four knobs worth knowing: `scoring.threshold` controls how selective the radar is, `clustering.idea_threshold` controls how aggressively duplicate signals merge (higher = only near-identical items collapse), `clustering.cohesion_floor` how homogeneous an idea must stay to keep accepting members (0 disables the check), and `scoring.heat_window_days` sets the sliding window the delta-based heat measures velocity over. The two clustering thresholds are tied to the embedding model: changing `EMBEDDING_MODEL` or the task prefix means re-calibrating them, then `rebuild-ideas`.
 
 Each source is one entry under `sources` with a `type` (`hn`, `hn_algolia`, `github`, `arxiv`, `producthunt`, `rss`) and its own options (`feeds` for RSS, `categories` for arXiv, `lookback_hours`/`min_points` for the Algolia backfill). The `producthunt` source ships **disabled**: enable it after setting `PRODUCTHUNT_TOKEN`. All the per-source scoring parameters live in each collector's `SourceProfile` (`backend/app/sources/<source>.py`), not in the scorer.
 
@@ -249,10 +268,12 @@ This repository contains **code only**. The database with collected data stays *
 
 Recently shipped: semantic deduplication end-to-end · per-idea insight cache · fit-gate · `recluster` command with threshold sweep · scheduled runs (launchd agent + CLI gate, SQLite in WAL) · engagement-history snapshots per run · idea lifecycle (auto-archive after 14 idle days, auto-revive on new signal) · HN Algolia backfill to heal gaps · immersive "radar room" frontend redesign · **delta-based heat** — velocity measured between consecutive `item_stats` observations, window-scoped, on live-counter sources (GitHub, HN) · **config-driven sources** — self-registering collectors, per-source scoring profiles · **arXiv and Product Hunt connectors** behind the same interface · **user actions** — pin / dismiss / mark-seen / notes, persisted across runs · **URL routing + TanStack Query** frontend data layer · SQL-side filtering, ordering and pagination on `/ideas`.
 
+Also shipped: **drift-proof clustering** — merges decided member-by-member (single link + cohesion) instead of on the centroid, with thresholds calibrated against a ground truth of cross-source duplicates · **`rebuild-ideas`** — re-aggregates the stored archive under new thresholds, preserving items, engagement history, user actions and paid-for insights · **honest trends** — a topic's `avg_composite` is measured on each idea's latest known score, so a run with nothing new draws a flat line instead of a fake crash to zero · **arXiv actually collecting** — it was requesting `http`, getting a redirect the Atom parser then choked on, and failing invisibly because a source that fails last never reached the run record · **a centroid index reused for a whole run** instead of re-reading every idea for every item: 66s → 4s on the clustering step of a 130-item run, measured on a 1300-idea archive.
+
 Next:
 
 - [ ] Configurable, smaller insight model for faster runs on modest hardware.
-- [ ] Clustering at scale — vectorised similarity (numpy / `sqlite-vec`), batched embeddings, a `heal` command to re-merge singletons left by degraded runs.
+- [ ] Clustering at scale — candidate lookup is an in-memory scan of unit centroids, so it is still linear per item and quadratic per run; at ~1300 ideas that's a few seconds, at ten times that it won't be. Next: `sqlite-vec` or numpy as a real ANN index, batched embeddings, a `heal` command to re-merge singletons left by degraded runs (there are already 9 in this archive, from a run where Ollama was down).
 - [ ] Cross-run digest and a full run history in the Monitor view.
 
 ---

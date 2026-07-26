@@ -7,7 +7,9 @@ from app.embeddings import (
     OllamaEmbedder,
     centroid,
     cosine,
+    dot,
     embed_item,
+    unit,
 )
 from app.models import Item
 
@@ -69,6 +71,23 @@ def test_embedder_stops_hammering_a_missing_model() -> None:
 
     assert embedder.unavailable
     assert len(calls) == 3  # si arrende dopo 3 tentativi, non 20
+
+
+def test_dot_on_unit_vectors_equals_cosine() -> None:
+    """La scorciatoia usata nel clustering non deve cambiare i risultati."""
+    pairs = [
+        ([3.0, 4.0, 0.0], [0.0, 5.0, 12.0]),
+        ([1.0, 0.0], [1.0, 0.0]),
+        ([2.0, 2.0], [-1.0, 1.0]),
+    ]
+    for a, b in pairs:
+        assert dot(unit(a), unit(b)) == pytest.approx(cosine(a, b))
+
+
+def test_unit_survives_the_null_vector_and_normalizes() -> None:
+    assert unit([0.0, 0.0]) == [0.0, 0.0]  # niente divisione per zero
+    assert dot(unit([3.0, 4.0]), unit([3.0, 4.0])) == pytest.approx(1.0)
+    assert dot([1.0, 0.0], [1.0]) == 0.0  # lunghezze diverse: nessun confronto
 
 
 def test_transient_failure_does_not_disable_embeddings() -> None:

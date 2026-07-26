@@ -30,12 +30,21 @@ class SourceConfig(BaseModel):
 
 
 class ClusteringConfig(BaseModel):
-    # Similarità coseno minima per fondere due item nella stessa idea.
-    idea_threshold: float = 0.82
+    # Similarità coseno minima perché un item entri nell'idea di un item già
+    # visto (legame singolo). Default allineati a config.yaml: sono tarati sui
+    # dati reali, non scelti a occhio.
+    idea_threshold: float = 0.86
+    # Coesione: similarità minima verso OGNI membro dell'idea. Impedisce la
+    # catena A~B~C con A e C estranei. 0.0 = criterio disattivato.
+    cohesion_floor: float = 0.82
     # Similarità minima (più permissiva) per mettere due idee nello stesso topic.
-    topic_threshold: float = 0.62
+    topic_threshold: float = 0.78
     # Se True, il topic viene nominato dall'LLM invece che ereditare l'etichetta.
     llm_topic_labels: bool = True
+    # Idee minime perché un topic valga una chiamata al modello per il nome.
+    # Sotto, eredita il titolo dell'idea che lo apre. E comunque si rinominano
+    # solo i topic la cui composizione è cambiata: quelli fermi no.
+    topic_label_min_ideas: int = 3
 
 
 class ScoringConfig(BaseModel):

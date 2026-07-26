@@ -18,10 +18,13 @@ import httpx
 from app.appconfig import AppConfig, SourceConfig
 from app.config import Settings
 from app.models import Item
-from app.sources.base import register_source
+from app.sources.base import USER_AGENT, register_source
 from app.sources.profiles import SourceProfile, register_profile
 
-API_URL = "http://export.arxiv.org/api/query"
+# HTTPS, non HTTP: su http arXiv risponde 301 verso https, e un redirect non è
+# un errore per ``raise_for_status`` — il parser Atom si trovava a masticare il
+# corpo del redirect e la fonte falliva a ogni run, silenziosamente.
+API_URL = "https://export.arxiv.org/api/query"
 SOURCE_NAME = "arxiv"
 
 # Niente live counter (arXiv non espone engagement): la heat usa l'euristica
@@ -61,7 +64,14 @@ class ArxivSource:
 
     def _get_client(self) -> httpx.Client:
         if self._client is None:
-            self._client = httpx.Client(timeout=20.0)
+            # Come il collector RSS: si seguono i redirect e si dichiara chi
+            # siamo. La netiquette di arXiv chiede uno User-Agent riconoscibile,
+            # e senza ``follow_redirects`` un 301 arriverebbe intatto al parser.
+            self._client = httpx.Client(
+                timeout=20.0,
+                follow_redirects=True,
+                headers={"User-Agent": USER_AGENT},
+            )
         return self._client
 
     def fetch(self) -> list[Item]:

@@ -24,7 +24,7 @@ import httpx
 from app.appconfig import AppConfig, SourceConfig
 from app.config import Settings
 from app.models import Item
-from app.sources.base import register_source
+from app.sources.base import USER_AGENT, register_source
 from app.sources.profiles import SourceProfile, register_profile
 
 logger = logging.getLogger(__name__)
@@ -38,11 +38,6 @@ register_profile(SOURCE_NAME, PROFILE)
 _ATOM = "{http://www.w3.org/2005/Atom}"
 _TAG_RE = re.compile(r"<[^>]+>")
 
-# Uno User-Agent ONESTO e descrittivo è, controintuitivamente, il più affidabile:
-# un UA da browser "finto" (dice Chrome ma il TLS è quello di httpx) fa scattare
-# i muri anti-bot di Cloudflare & co. — verificato sul campo, dava 404/403/429
-# dove questo UA dà 200. Metti pure il tuo repo/contatto reale al posto del link.
-USER_AGENT = "idea-radar/0.1 (+https://github.com/idea-radar)"
 # Pausa tra una richiesta e l'altra: evita di colpire lo stesso host con feed
 # consecutivi (es. i due r/... di fila), causa tipica del 429.
 REQUEST_DELAY = 0.5

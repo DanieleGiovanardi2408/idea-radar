@@ -7,7 +7,12 @@ from app.clustering import sweep_topic_thresholds
 from app.config import get_settings
 from app.db import get_session, init_db
 from app.models import IdeaStatus, utcnow
-from app.pipeline import execute_recluster, execute_run
+from app.pipeline import (
+    execute_preview_rebuild,
+    execute_rebuild_ideas,
+    execute_recluster,
+    execute_run,
+)
 from app.queries import monitor_stats, top_ideas, topic_trends, topics_overview
 from app.runlock import RunLockBusy
 from app.scheduling import is_fresh, ollama_preflight
@@ -24,6 +29,11 @@ def hello() -> None:
 def _stamp() -> str:
     """Timestamp per le righe destinate al log del LaunchAgent."""
     return f"[{utcnow():%Y-%m-%d %H:%M}]"
+
+
+def _show(msg: str) -> None:
+    """Riscrive sempre la stessa riga: avanzamento senza allagare il terminale."""
+    typer.echo(f"\r  {msg:<48}", nl=False)
 
 
 def _scheduled_run() -> None:
@@ -79,10 +89,6 @@ def run(
 
     typer.echo("Avvio pipeline…")
 
-    def _show(msg: str) -> None:
-        # Riscrive sempre la stessa riga: avanzamento senza allagare il terminale.
-        typer.echo(f"\r  {msg:<48}", nl=False)
-
     try:
         summary = execute_run(on_progress=_show)
     except RunLockBusy:
@@ -98,6 +104,85 @@ def run(
         f"{summary['n_ideas_proposed']} proposed, "
         f"{summary['n_ideas_processed']} processed, "
         f"{summary['n_topics']} topic."
+    )
+
+
+@app.command(name="rebuild-ideas")
+def rebuild_ideas_command(
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Solo anteprima: mostra che idee uscirebbero, senza scrivere nulla.",
+    ),
+    threshold: float = typer.Option(
+        None,
+        "--threshold",
+        help="Usa questa idea_threshold al posto di quella in config.yaml.",
+    ),
+    cohesion: float = typer.Option(
+        None,
+        "--cohesion",
+        help="Usa questo cohesion_floor al posto di quello in config.yaml (0 = disattivato).",
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Non chiedere conferma."),
+) -> None:
+    """Ri-aggrega gli item già in archivio: rifà le idee, non il run.
+
+    Da usare dopo un cambio delle soglie di clustering, per applicarle allo
+    storico invece di aspettare che si riformi da solo. Item e storia
+    dell'engagement restano intatti; pin, dismiss, note e insight LLM già
+    prodotti vengono trasferiti alle idee ricostruite. Prima `--dry-run`.
+    """
+    preview = execute_preview_rebuild(idea_threshold=threshold, cohesion_floor=cohesion)
+    if preview["n_items"] == 0:
+        typer.echo("Nessun item con embedding in archivio: serve prima un run.")
+        raise typer.Exit()
+
+    typer.echo(
+        f"Soglie: idea_threshold {preview['threshold']:.2f} · "
+        f"cohesion_floor {preview['cohesion_floor']:.2f}"
+    )
+    typer.echo(
+        f"{preview['n_items']} item → {preview['n_ideas']} idee "
+        f"(ora sono {preview['n_ideas_now']}) · "
+        f"la più grossa {preview['max_size']} item · "
+        f"{preview['n_singleton']} singleton"
+    )
+    for title in preview["biggest_sample"]:
+        typer.echo(f"        · {title}")
+    if preview["n_items_without_embedding"]:
+        typer.echo(
+            f"  ({preview['n_items_without_embedding']} item senza embedding "
+            "resteranno idee a sé)"
+        )
+
+    if dry_run:
+        typer.echo("Anteprima senza scritture: rilancia senza --dry-run per applicare.")
+        return
+
+    if not yes:
+        typer.confirm(
+            "Idee, topic e score verranno ricostruiti (item, engagement, pin e "
+            "note restano). Procedo?",
+            abort=True,
+        )
+
+    try:
+        summary = execute_rebuild_ideas(
+            idea_threshold=threshold, cohesion_floor=cohesion, on_progress=_show
+        )
+    except RunLockBusy:
+        typer.echo(
+            "Un run è in corso e la ricostruzione toccherebbe gli stessi dati. "
+            "Riprova a run finito."
+        )
+        raise typer.Exit(1)
+    typer.echo("")  # chiude la riga di avanzamento
+    typer.echo(
+        f"Fatto — {summary['n_ideas_before']} idee → {summary['n_ideas']} "
+        f"({summary['n_topics']} topic, {summary['n_scored']} riscorate sul run "
+        f"#{summary['scored_on_run']}); la più grossa {summary['max_size']} item, "
+        f"{summary['n_user_state_restored']} azioni utente trasferite."
     )
 
 

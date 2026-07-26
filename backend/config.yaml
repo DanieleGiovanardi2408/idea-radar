@@ -97,18 +97,40 @@ scoring:
 
 # Aggregazione semantica (richiede `ollama pull nomic-embed-text`).
 clustering:
-  # Similarità coseno minima per fondere due item nella STESSA idea.
-  # Alta = fonde solo quasi-duplicati. Con il prefisso "clustering:" negli
-  # embedding i duplicati semantici salgono, quindi 0.75 è un punto di partenza
-  # più sensato di 0.82. Alzala se vedi fusioni sbagliate, abbassala se doppioni.
-  idea_threshold: 0.75
+  # Similarità coseno minima perché un item entri nell'idea di un item già
+  # visto. TARATA sui 1383 item in DB (26/07) contro una verità di riferimento
+  # di 74 coppie di doppioni certi (stesso titolo su fonti diverse), la cui
+  # similarità mediana è 0.951. Con nomic-embed-text la similarità di due item
+  # PRESI A CASO è già 0.614 in media e il 99° percentile è 0.746: a 0.75
+  # passavano 8006 coppie estranee (recall 96%), a 0.86 solo 111 (recall 92%).
+  # Quattro punti di recall non valgono 72 volte i falsi positivi — sono la
+  # benzina delle idee-calamita. Le bande, viste a campione: 0.75-0.82 estranei,
+  # 0.82-0.86 stesso tema, 0.86+ stessa notizia. Da ri-tarare se si cambia
+  # modello di embedding o il prefisso di task.
+  idea_threshold: 0.86
+  # Coesione: un item entra solo se somiglia a OGNI membro almeno così tanto.
+  # Il legame singolo (soglia sopra) trova i doppioni; questo evita la catena
+  # A~B~C con A e C estranei, cioè impedisce a un gruppo di crescere
+  # diventando eterogeneo. Sui dati reali porta il gruppo più grosso da 9 a 6
+  # item senza spezzare nessuna fusione legittima. 0 = disattivata.
+  cohesion_floor: 0.82
   # Similarità minima (più permissiva) per mettere due idee nello stesso topic.
-  # 0.70 scelto con `recluster --sweep` (17/07, 58 idee): a 0.62 il topic più
-  # grosso era un minestrone da 33 idee, a 0.74 quasi tutto singleton. Da
-  # ri-sweepare quando le idee saranno ~il doppio.
-  topic_threshold: 0.70
+  # Il vecchio 0.70 veniva da uno sweep fatto sulle idee prodotte dal clustering
+  # rotto, ed era sotto il 95° percentile delle coppie casuali (0.704): da lì i
+  # topic-minestrone da 50 idee. Ri-sweepato sulle 1263 idee ricostruite (26/07):
+  # a 0.70 il topic più grosso metteva insieme 61 idee senza un tema comune, a
+  # 0.74 ne restavano 20 ancora scollegate, a 0.78 il gruppo più grosso (14) è
+  # leggibile — la critica all'hype dell'AI. Sopra, si sbriciola in singleton.
+  topic_threshold: 0.78
   # Nomina i topic con l'LLM invece di ereditare il titolo della prima idea.
   llm_topic_labels: true
+  # Idee minime perché un topic valga una chiamata al 7B per il nome. Con le
+  # soglie tarate i topic sono ~900 invece di 52, e rinominarli tutti a ogni run
+  # sarebbe un'ora di modello: si nominano solo quelli la cui composizione è
+  # cambiata dall'ultima fotografia, e solo se hanno almeno queste idee. Un topic
+  # da una o due idee non ha niente da sintetizzare — il titolo dell'idea che lo
+  # apre è già l'etichetta migliore. A 3: 74 topic su 893, il 92% in meno.
+  topic_label_min_ideas: 3
 
 # Run automatici: `idea-radar schedule install` registra un LaunchAgent che
 # lancia `idea-radar run --scheduled` al login e ogni mezz'ora. Il run vero

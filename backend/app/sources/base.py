@@ -15,6 +15,15 @@ class Source(Protocol):
     def fetch(self) -> list[Item]: ...
 
 
+# Uno User-Agent ONESTO e descrittivo è, controintuitivamente, il più affidabile:
+# un UA da browser "finto" (dice Chrome ma il TLS è quello di httpx) fa scattare
+# i muri anti-bot di Cloudflare & co. — verificato sul campo, dava 404/403/429
+# dove questo UA dà 200. arXiv, poi, lo chiede esplicitamente nella sua netiquette.
+# Sta qui e non in un singolo collector perché è la buona educazione di tutti.
+# Metti pure il tuo repo/contatto reale al posto del link.
+USER_AGENT = "idea-radar/0.1 (+https://github.com/idea-radar)"
+
+
 # ``type`` di config.yaml -> classe collector. Non è hardcoded qui: ogni
 # modulo collector si registra da solo con ``register_source`` all'import
 # (``load_collectors`` li importa tutti). Una fonte nuova = un modulo nuovo.
