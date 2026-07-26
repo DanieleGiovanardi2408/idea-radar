@@ -56,3 +56,30 @@ def test_generate_insight_raises_when_required() -> None:
     ollama = OllamaClient(Settings(), client=client)
     with pytest.raises(OllamaError):
         generate_insight(_item(), Settings(llm_required=True), ollama=ollama)
+
+
+def _labeler(label: str) -> OllamaClient:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"response": json.dumps({"label": label})})
+
+    return OllamaClient(
+        Settings(), client=httpx.Client(transport=httpx.MockTransport(handler))
+    )
+
+
+def test_topic_label_accepts_italian_with_accents() -> None:
+    assert _labeler("agenti AI per l'autonomìa").topic_label(["a", "b"]) == (
+        "agenti AI per l'autonomìa"
+    )
+
+
+def test_topic_label_refuses_another_alphabet() -> None:
+    """Il 7B a volte risponde in cinese: "AI开源与应用", "Open-source macOS工具".
+
+    Un prompt non è una garanzia, e chi chiama tiene l'etichetta precedente —
+    sempre meglio di una in un alfabeto che non sai leggere.
+    """
+    with pytest.raises(OllamaError):
+        _labeler("Open-source macOS工具").topic_label(["a", "b"])
+    with pytest.raises(OllamaError):
+        _labeler("AI开源与应用").topic_label(["a", "b"])

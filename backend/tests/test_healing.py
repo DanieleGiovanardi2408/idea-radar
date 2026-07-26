@@ -15,8 +15,14 @@ from app.appconfig import AppConfig, ClusteringConfig, ScoringConfig
 from app.clustering import attach_item_to_idea
 from app.config import Settings
 from app.db import init_db, upsert_item
-from app.healing import heal_ideas, items_without_embedding, singleton_ideas
-from app.models import Idea, Item, Run, RunStatus, Score, utcnow
+from app.healing import (
+    heal_ideas,
+    ideas_to_reinsight,
+    items_without_embedding,
+    regenerate_insights,
+    singleton_ideas,
+)
+from app.models import Idea, IdeaStatus, Item, Run, RunStatus, Score, utcnow
 
 
 class FakeEmbedder:
@@ -233,6 +239,107 @@ def test_skip_embeddings_does_not_call_ollama(session: Session) -> None:
     assert embedder.calls == 0
     assert summary["n_embedded"] == 0
     assert summary["n_without_embedding_left"] == 1
+
+
+def _scored(session: Session, idea: Idea, run: Run, composite: float) -> None:
+    session.add(
+        Score(
+            idea_id=idea.id,
+            run_id=run.id,
+            heat=0.1,
+            credibility=0.1,
+            feasibility=0.1,
+            opportunity=0.1,
+            fit=0.1,
+            composite=composite,
+        )
+    )
+    session.commit()
+
+
+def test_reinsight_targets_the_most_visible_ideas_first(session: Session) -> None:
+    """Si rigenera per priorità, non per "sospetto".
+
+    Riconoscere un riassunto ereditato sbagliato non funziona: dal vocabolario si
+    misura la lingua (insight in italiano, item in inglese), dagli embedding non
+    si distingue "stesso dominio, oggetto diverso" — ed è esattamente il caso.
+    Quindi l'ordine è quello che conta: prima ciò che l'utente legge davvero.
+    """
+    run = Run(status=RunStatus.DONE)
+    session.add(run)
+    session.commit()
+    session.refresh(run)
+
+    ideas = []
+    rows = (
+        ("alta sopra soglia", 0.9, IdeaStatus.PROPOSED),
+        ("media sopra soglia", 0.7, IdeaStatus.PROPOSED),
+        ("sotto soglia", 0.3, IdeaStatus.PROCESSED),
+        ("archiviata", 0.95, IdeaStatus.ARCHIVED),
+    )
+    for position, (label, composite, status) in enumerate(rows):
+        # Vettori ortogonali: quattro idee distinte, non una da quattro item.
+        vector = [1.0 if j == position else 0.0 for j in range(len(rows))]
+        item = _item(session, label, label, vector)
+        idea = attach_item_to_idea(session, item, item.embedding_json, 0.999)
+        idea.status = status
+        session.add(idea)
+        session.commit()
+        _scored(session, idea, run, composite)
+        ideas.append(idea)
+
+    default = ideas_to_reinsight(session)
+    assert [i.label for i in default] == ["alta sopra soglia", "media sopra soglia"]
+
+    everything = ideas_to_reinsight(session, only_proposed=False)
+    assert "sotto soglia" in [i.label for i in everything]
+    assert "archiviata" not in [i.label for i in everything]  # fuori dalle viste
+
+    assert [i.label for i in ideas_to_reinsight(session, limit=1)] == [
+        "alta sopra soglia"
+    ]
+
+
+def test_regenerating_updates_both_summary_and_last_score(session: Session) -> None:
+    from app.llm import IdeaInsight
+
+    class FakeOllama:
+        def insight(self, item: Item) -> IdeaInsight:
+            return IdeaInsight(
+                summary=f"riassunto giusto di {item.title}",
+                why_text="motivo nuovo",
+                difficulty=None,
+            )
+
+    item = _item(session, "1", "il vero argomento", [1.0, 0.0])
+    idea = attach_item_to_idea(session, item, item.embedding_json, 0.85)
+    idea.summary = "riassunto di un'altra cosa"
+    session.add(idea)
+    run = Run(status=RunStatus.DONE)
+    session.add(run)
+    session.commit()
+    session.add(
+        Score(
+            idea_id=idea.id,
+            run_id=run.id,
+            heat=0.1,
+            credibility=0.1,
+            feasibility=0.1,
+            opportunity=0.1,
+            fit=0.1,
+            composite=0.1,
+            why_text="motivo vecchio",
+        )
+    )
+    session.commit()
+
+    done = regenerate_insights(session, Settings(), [idea], ollama=FakeOllama())
+
+    assert done == 1
+    assert session.get(Idea, idea.id).summary == "riassunto giusto di il vero argomento"
+    # Il why_text vive sullo score: lasciarlo indietro darebbe un riassunto
+    # nuovo accanto alla vecchia motivazione.
+    assert session.get(Score, (idea.id, run.id)).why_text == "motivo nuovo"
 
 
 def test_cli_falls_back_when_ollama_is_not_ready(monkeypatch, tmp_path) -> None:

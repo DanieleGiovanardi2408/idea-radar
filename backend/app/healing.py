@@ -18,6 +18,16 @@ parte che tocca Ollama) e riprova ad assegnare le idee da un solo item con lo
 stesso criterio del flusso normale (``clustering.best_idea_for``, così le due
 strade non possono divergere). Non tocca le idee con più item: quelle un posto
 l'hanno già trovato.
+
+C'è un terzo sedimento, di natura diversa: **riassunti che parlano d'altro**.
+L'insight LLM vive sull'idea, non sull'item, e quando un'idea era una calamita
+da centinaia di item il suo riassunto descriveva soltanto il migliore di quelli.
+Il ``rebuild-ideas`` ha spalmato quel testo su tutte le idee nate da quella
+calamita — era il modo di non buttare mesi di lavoro del modello, ma su una
+minoranza di idee il risultato è un riassunto che non c'entra niente. Non si
+riesce a *riconoscerle* (vedi ``ideas_to_reinsight``), quindi
+``regenerate_insights`` le rifà per priorità: è l'unica parte che chiede al 7B
+di lavorare.
 """
 
 import logging
@@ -30,7 +40,9 @@ from app.appconfig import AppConfig
 from app.clustering import IdeaIndex, _refresh_centroid, best_idea_for
 from app.config import Settings
 from app.embeddings import OllamaEmbedder, embed_item
-from app.models import Idea, Item, Score, utcnow
+from app.llm import OllamaClient, generate_insight
+from app.models import Idea, IdeaStatus, Item, Score, utcnow
+from app.queries import latest_scores
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +82,90 @@ def _merge_user_state(target: Idea, source: Idea) -> None:
     target.seen_at = max(seen) if seen else None
     notes = [n.strip() for n in (target.note, source.note) if n and n.strip()]
     target.note = "\n\n".join(dict.fromkeys(notes)) or None
+
+
+def ideas_to_reinsight(
+    session: Session,
+    *,
+    only_proposed: bool = True,
+    limit: int = 0,
+) -> list[Idea]:
+    """Idee di cui rifare l'insight, dalla più in vista alla meno.
+
+    Non c'è modo di *riconoscere* un riassunto ereditato sbagliato, e ci ho
+    provato due volte: contando le parole in comune coi propri item (misurava la
+    lingua — gli insight sono in italiano, gli item in inglese) e confrontando
+    gli embedding (non distingue "stesso dominio, oggetto diverso", ed è proprio
+    quello il caso: la calamita era piena di roba AI/dev-tools e le idee nate da
+    lei parlano anche loro di AI/dev-tools). Sull'archivio reale il secondo
+    segnalava 19 idee di cui la maggior parte con riassunti giusti, e mancava i
+    due casi rotti visti nel digest.
+
+    Quindi si smette di indovinare e si sceglie per **priorità**: prima le idee
+    sopra soglia, che sono quelle che finiscono nel digest e in cima al radar.
+    Rigenerare è deterministico e sempre corretto — costa solo tempo di 7B
+    locale, quindi il vero parametro è quanto ne vuoi spendere.
+    """
+    query = select(Idea).where(Idea.status != IdeaStatus.ARCHIVED)
+    if only_proposed:
+        query = query.where(Idea.status == IdeaStatus.PROPOSED)
+    ideas = [idea for idea in session.exec(query).all() if idea.items]
+    latest = latest_scores(session)
+    ideas.sort(key=lambda i: latest[i.id].composite if i.id in latest else 0.0, reverse=True)
+    return ideas[:limit] if limit > 0 else ideas
+
+
+def _anchor_item(idea: Idea) -> Item | None:
+    """L'item che dà il nome all'idea: quello da cui rigenerare l'insight."""
+    if not idea.items:
+        return None
+    return next(
+        (item for item in idea.items if item.title == idea.label),
+        min(idea.items, key=lambda i: i.id or 0),
+    )
+
+
+def regenerate_insights(
+    session: Session,
+    settings: Settings,
+    ideas: list[Idea],
+    *,
+    ollama: OllamaClient | None = None,
+    on_progress: Callable[[str], None] | None = None,
+) -> int:
+    """Rigenera riassunto e "perché conta" per le idee passate.
+
+    Aggiorna anche l'ultimo ``Score``, dove vivono ``why_text`` e ``difficulty``:
+    lasciarlo indietro significherebbe un riassunto nuovo con la vecchia
+    motivazione accanto, che è peggio del problema di partenza.
+    """
+    ollama = ollama or OllamaClient(settings)
+    done = 0
+    for position, idea in enumerate(ideas, start=1):
+        if on_progress is not None:
+            on_progress(f"riassunti {position}/{len(ideas)}")
+        item = _anchor_item(idea)
+        if item is None:
+            continue
+        try:
+            insight = generate_insight(item, settings, ollama=ollama)
+        except Exception as exc:  # un'idea fallita non ferma le altre
+            logger.warning("Insight non rigenerato per l'idea %s: %s", idea.id, exc)
+            continue
+        idea.summary = insight.summary
+        session.add(idea)
+        last = session.exec(
+            select(Score)
+            .where(Score.idea_id == idea.id)
+            .order_by(Score.run_id.desc())
+        ).first()
+        if last is not None:
+            last.why_text = insight.why_text
+            last.difficulty = insight.difficulty
+            session.add(last)
+        session.commit()
+        done += 1
+    return done
 
 
 def _pick_survivor(idea: Idea, target: Idea) -> tuple[Idea, Idea]:

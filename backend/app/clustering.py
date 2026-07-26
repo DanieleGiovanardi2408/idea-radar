@@ -14,6 +14,7 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app.embeddings import Vector, centroid, dot, unit
+from app.llm import is_plausible_label
 from app.models import Idea, Item, Topic, TopicStat, utcnow
 
 logger = logging.getLogger(__name__)
@@ -227,9 +228,15 @@ def _needs_label(
     La composizione è confrontata per numero di idee: uno scambio a saldo zero
     passa inosservato e lascia l'etichetta vecchia. È il compromesso che tiene
     il costo a zero nei run in cui non cambia nulla.
+
+    Unica eccezione al secondo filtro: un'etichetta illeggibile (il 7B a volte
+    risponde in cinese) va rifatta comunque, altrimenti resterebbe lì fino al
+    prossimo cambio di composizione.
     """
     if n_members < min_ideas:
         return False
+    if not is_plausible_label(topic.label):
+        return True
     return previous_sizes.get(topic.id) != n_members
 
 

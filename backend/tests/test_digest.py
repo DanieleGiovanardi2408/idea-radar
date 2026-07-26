@@ -144,6 +144,10 @@ def test_render_includes_ideas_topics_and_links(session: Session) -> None:
     session.refresh(topic)
     run = _run(session, NOW)
     idea = _idea(session, "un runtime self-hosted", topic=topic, summary="Fa cose.")
+    # Il tema si stampa solo se è stato davvero nominato, cioè se ha almeno
+    # `topic_label_min_ideas` idee: sotto, l'etichetta è un titolo ereditato.
+    for filler in ("compagna 1", "compagna 2"):
+        _idea(session, filler, topic=topic)
     _score(session, idea, run, 0.77, why="risolve un problema vero")
 
     text = render_digest(session, _config(), since=None, now=NOW)
@@ -156,6 +160,46 @@ def test_render_includes_ideas_topics_and_links(session: Session) -> None:
     assert "risolve un problema vero" in text
     assert "https://example.com/un runtime self-hosted" in text
     assert "1 segnale ·" in text  # singolare, non "1 segnali"
+
+
+def test_plurals_are_not_embarrassing(session: Session) -> None:
+    """Regressione: "2 segnalei". Il test controllava solo il singolare."""
+    run = _run(session, NOW)
+    idea = _idea(session, "doppione su due fonti")
+    idea.items.append(
+        Item(source="rss", external_id="secondo", title="doppione su due fonti")
+    )
+    session.add(idea)
+    session.commit()
+    _score(session, idea, run, 0.9)
+
+    text = render_digest(session, _config(), since=None, now=NOW)
+
+    assert "2 segnali ·" in text
+    assert "segnalei" not in text
+
+
+def test_a_theme_nobody_named_is_not_printed(session: Session) -> None:
+    """I topic sotto la soglia di naming ereditano il titolo della PRIMA idea.
+
+    E quella spesso non è nemmeno l'idea che stai leggendo: nel digest reale
+    accanto a un'idea su n8n compariva "tema *Why I Built OpenAgentFlow:
+    Decoupling Multi-Agent Workflows from Framework Boile*", troncata a 80.
+    """
+    topic = Topic(label="Why I Built OpenAgentFlow: Decoupling Multi-Agent Workfl")
+    session.add(topic)
+    session.commit()
+    session.refresh(topic)
+    run = _run(session, NOW)
+    idea = _idea(session, "n8n-io/n8n", topic=topic)  # due idee: nessun naming
+    _idea(session, "l'idea che ha aperto il topic", topic=topic)
+    _score(session, idea, run, 0.9)
+
+    text = render_digest(session, _config(), since=None, now=NOW)
+
+    assert "tema *" not in text
+    assert "OpenAgentFlow" not in text
+    assert "### n8n-io/n8n" in text  # il titolo dell'idea c'è comunque
 
 
 def test_render_survives_an_empty_window(session: Session) -> None:

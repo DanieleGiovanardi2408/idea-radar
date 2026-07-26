@@ -29,7 +29,9 @@ from app.llm import IdeaInsight
 from app.models import Difficulty, IdeaStatus, Item, ItemStat, utcnow
 from app.sources.profiles import profile_for
 
-_QUALITY_METRICS = ("heat", "credibility", "feasibility", "opportunity")
+# Le metriche che si SOMMANO nella qualità. `fit` e `opportunity` non ci sono:
+# sono moltiplicatori (vedi ``score_item``), non ingredienti di una media.
+_QUALITY_METRICS = ("heat", "credibility", "feasibility")
 
 # I parametri per-fonte (cap di velocità e saturazione, credibilità di base,
 # live counter, riduzione dell'engagement) NON vivono più qui: ogni collector
@@ -56,6 +58,15 @@ class ScoreResult(BaseModel):
 
 def _clamp(x: float) -> float:
     return max(0.0, min(1.0, x))
+
+
+def _gate(value: float, floor: float) -> float:
+    """Moltiplicatore in ``[floor, 1]``: abbatte senza azzerare del tutto.
+
+    Con ``floor=0`` un valore nullo cancella l'idea; con ``floor=1`` la metrica
+    non conta più. Nel mezzo si sceglie quanto si è disposti a perdonare.
+    """
+    return floor + (1 - floor) * value
 
 
 def _saturate(x: float, cap: float) -> float:
@@ -214,16 +225,27 @@ def score_item(
         "heat": heat,
         "credibility": credibility,
         "feasibility": feasibility,
-        "opportunity": opportunity,
     }
     weights = config.scoring.normalized_weights()
     q_weights = {m: weights.get(m, 0.0) for m in _QUALITY_METRICS}
     total_w = sum(q_weights.values()) or 1.0
     quality = sum(q_weights[m] * quality_values[m] for m in _QUALITY_METRICS) / total_w
 
-    floor = config.scoring.relevance_floor
-    relevance = floor + (1 - floor) * fit
-    composite = _clamp(quality * relevance)
+    # Due moltiplicatori, non addendi: sono le due condizioni SENZA le quali un
+    # segnale non è un'opportunità, per quanto sia popolare o ben fatto.
+    #
+    # `fit`: se non è nel tuo tema, non è roba tua.
+    # `opportunity`: se è già un mercato chiuso, non è un'apertura. Da addendo al
+    #   30% non bastava — n8n, con opportunity 0.00 per saturazione piena,
+    #   restava a 0.56 e quarto in classifica, cioè esattamente ciò che il
+    #   README dice di non voler mostrare. Come moltiplicatore scende a 0.12.
+    #
+    # Il prezzo è che l'intera scala si comprime (il massimo sull'archivio reale
+    # passa da 0.65 a 0.46): la soglia va tarata di conseguenza, non è più
+    # confrontabile con quella di prima.
+    relevance = _gate(fit, config.scoring.relevance_floor)
+    openness = _gate(opportunity, config.scoring.opportunity_floor)
+    composite = _clamp(quality * relevance * openness)
 
     status = (
         IdeaStatus.PROPOSED

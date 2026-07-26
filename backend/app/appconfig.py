@@ -49,10 +49,12 @@ class ClusteringConfig(BaseModel):
 
 class ScoringConfig(BaseModel):
     weights: dict[str, float] = Field(default_factory=dict)
-    threshold: float = 0.6
-    # Quanto "sopravvive" un'idea del tutto fuori tema (fit=0):
-    # composite = quality * (relevance_floor + (1 - relevance_floor) * fit).
+    threshold: float = 0.32
+    # Quanto "sopravvive" un'idea del tutto fuori tema (fit=0) o già satura
+    # (opportunity=0). Sono due moltiplicatori, non addendi:
+    # composite = quality * gate(fit) * gate(opportunity).
     relevance_floor: float = 0.25
+    opportunity_floor: float = 0.15
     # Fit minimo perché a un item valga la pena spendere l'insight LLM: sotto
     # questa soglia si usa l'insight euristico (niente 7B). 0.0 = salta solo i
     # fit == 0, cioè gli item senza NESSUN match di keyword.

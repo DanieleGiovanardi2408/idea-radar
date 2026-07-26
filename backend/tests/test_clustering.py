@@ -297,6 +297,41 @@ def test_unchanged_topics_are_not_renamed(session: Session) -> None:
     assert session.exec(select(Topic)).one().label == "nome 1"
 
 
+def test_an_unreadable_label_is_redone_even_if_nothing_changed(
+    session: Session,
+) -> None:
+    """Un'etichetta in un altro alfabeto non deve sopravvivere ai run.
+
+    Il 7B a volte risponde in cinese ("AI开源与应用"): quelle già in archivio
+    resterebbero lì fino al prossimo cambio di composizione, che potrebbe non
+    arrivare mai.
+    """
+    calls: list[list[str]] = []
+
+    def namer(labels: list[str]) -> str:
+        calls.append(labels)
+        return "agenti AI per il codice"
+
+    for i, vec in enumerate([[1.0, 0.0], [0.99, 0.1]]):
+        item = _item(session, str(i), f"idea {i}", vec)
+        attach_item_to_idea(session, item, vec, threshold=0.999)
+    assign_ideas_to_topics(session, threshold=0.9, namer=namer, label_min_ideas=1)
+    topic = session.exec(select(Topic)).one()
+    topic.label = "AI开源与应用"
+    session.add(topic)
+    run = Run(status=RunStatus.DONE)
+    session.add(run)
+    session.commit()
+    session.add(TopicStat(topic_id=topic.id, run_id=run.id, n_ideas=2, n_items=2))
+    session.commit()
+
+    # Composizione identica: senza l'eccezione non ci sarebbe una seconda chiamata.
+    assign_ideas_to_topics(session, threshold=0.9, namer=namer, label_min_ideas=1)
+
+    assert len(calls) == 2
+    assert session.exec(select(Topic)).one().label == "agenti AI per il codice"
+
+
 def test_a_topic_that_grew_gets_renamed(session: Session) -> None:
     """Se invece la composizione cambia, l'etichetta va rifatta."""
     calls: list[list[str]] = []

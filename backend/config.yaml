@@ -69,18 +69,27 @@ keywords:
 
 # Parametri di scoring delle idee.
 scoring:
-  # Pesi delle 4 metriche di "qualità" (vengono normalizzate a somma 1).
-  # NB: `fit` NON è qui: è un moltiplicatore di rilevanza, non un addendo,
-  # così un'idea fuori tema viene abbattuta anche se popolare.
+  # Pesi delle metriche che si SOMMANO nella qualità (normalizzati a somma 1).
+  # NB: `fit` e `opportunity` NON sono qui: sono moltiplicatori, non addendi.
+  # Sono le due condizioni senza le quali un segnale non è un'opportunità, per
+  # quanto sia popolare o ben fatto — e da addendi non fermavano niente.
   weights:
     heat: 0.30          # velocità di crescita (non popolarità assoluta)
     credibility: 0.15   # affidabilità della fonte/autore
     feasibility: 0.25   # quanto è realizzabile da un piccolo team (da LLM)
-    opportunity: 0.30   # recente E non ancora saturo
   # Quanto resta a un'idea del tutto fuori tema (fit=0): 0 = azzerata, 1 = fit ignorato.
   relevance_floor: 0.25
+  # Come sopra ma per un mercato già chiuso (opportunity=0). Con opportunity al
+  # 30% della media, n8n — saturazione piena, opportunity 0.00 — restava a 0.56 e
+  # quarto in classifica: esattamente ciò che il README dice di non voler
+  # mostrare. Come moltiplicatore scende a 0.12.
+  opportunity_floor: 0.15
   # Soglia minima del composite perché un'idea passi a status "proposed".
-  threshold: 0.5
+  # RITARATA per la formula a due moltiplicatori: la scala si comprime (sul vero
+  # archivio il massimo passa da 0.65 a 0.46), quindi questo valore non è
+  # confrontabile col precedente 0.5. A 0.32 restano 28 idee sopra soglia su
+  # 1359 — come le 27 di prima, ma senza i mercati chiusi.
+  threshold: 0.32
   # Fit minimo perché a un item valga l'insight LLM: sotto, insight euristico
   # (niente 7B). 0.0 = salta solo gli item senza alcun match di keyword;
   # alzala (~0.2) per saltare anche i match deboli e velocizzare ancora i run.

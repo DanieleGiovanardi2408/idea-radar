@@ -52,7 +52,10 @@ def test_idea_status_reflects_best_item_not_last(session: Session) -> None:
     cfg = AppConfig(
         sources=[],
         keywords=["ai"],
-        scoring=ScoringConfig(weights={"heat": 1.0}, threshold=0.5),
+        # Soglia bassa perché il composite è quality * gate(fit) * gate(opportunity):
+        # con due moltiplicatori sotto 1 la scala è compressa, e qui interessa
+        # solo la differenza tra l'item forte e quello debole.
+        scoring=ScoringConfig(weights={"heat": 1.0}, threshold=0.2),
         clustering=ClusteringConfig(idea_threshold=0.5, topic_threshold=0.9),
     )
     # "strong" ha molto engagement (composite alto → proposed), "weak" no

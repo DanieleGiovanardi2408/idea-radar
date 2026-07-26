@@ -9,7 +9,11 @@ from app.clustering import sweep_topic_thresholds
 from app.config import get_settings
 from app.db import DATA_DIR, get_session, init_db
 from app.digest import last_digest_at, render_digest, write_digest
-from app.healing import items_without_embedding
+from app.healing import (
+    ideas_to_reinsight,
+    items_without_embedding,
+    regenerate_insights,
+)
 from app.models import IdeaStatus, utcnow
 from app.pipeline import (
     execute_heal,
@@ -223,6 +227,66 @@ def heal(
             f"  {summary['n_without_embedding_left']} item restano senza "
             "embedding: riprova con Ollama attivo."
         )
+
+
+@app.command()
+def reinsight(
+    all_ideas: bool = typer.Option(
+        False,
+        "--all",
+        help="Tutte le idee vive, non solo quelle sopra soglia (lungo: ore).",
+    ),
+    limit: int = typer.Option(0, help="Fermati dopo N idee (0 = nessun tetto)."),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Mostra quali idee e quanto ci vuole, senza rifare."
+    ),
+) -> None:
+    """Rigenera i riassunti, dalle idee più in vista alle meno.
+
+    Serve perché l'insight LLM vive sull'idea, non sull'item: quando un'idea era
+    una calamita da centinaia di item il riassunto descriveva solo il migliore, e
+    il `rebuild-ideas` l'ha spalmato su tutte le idee nate da lì.
+
+    Non c'è un filtro "trova quelli sbagliati" perché non funziona: riconoscerli
+    dalle parole in comune misura la lingua (insight in italiano, item in
+    inglese), e confrontare gli embedding non distingue "stesso dominio, oggetto
+    diverso" — che è esattamente il caso. Quindi si rigenera per priorità: di
+    default solo le idee sopra soglia, quelle che finiscono nel digest e in cima
+    al radar. `--all` copre tutto, ma mettiti l'anima in pace.
+    """
+    init_db()
+    settings = get_settings()
+    ready, why = ollama_preflight(settings)
+    if not ready:
+        typer.echo(f"Serve Ollama per questo comando: {why}")
+        raise typer.Exit(3)
+
+    with get_session() as session:
+        targets = ideas_to_reinsight(
+            session, only_proposed=not all_ideas, limit=limit
+        )
+        if not targets:
+            typer.echo("Nessuna idea da rigenerare.")
+            return
+
+        # Una stima onesta: il 7B locale sta sui pochi secondi per idea.
+        minutes = len(targets) * 4 / 60
+        scope = "tutte le idee vive" if all_ideas else "idee sopra soglia"
+        typer.echo(
+            f"{len(targets)} idee da rigenerare ({scope}) — "
+            f"circa {minutes:.0f} minuti di 7B locale."
+        )
+        for idea in targets[:5]:
+            typer.echo(f"  · {idea.label[:64]}")
+            typer.echo(f"    ora: {(idea.summary or '(vuoto)')[:70]}")
+        if dry_run:
+            typer.echo("Anteprima senza scritture.")
+            return
+
+        typer.confirm("Procedo?", abort=True)
+        done = regenerate_insights(session, settings, targets, on_progress=_show)
+    typer.echo("")
+    typer.echo(f"Fatto — {done} riassunti rigenerati.")
 
 
 @app.command(name="rebuild-ideas")

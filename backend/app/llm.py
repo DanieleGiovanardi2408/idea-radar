@@ -12,6 +12,7 @@ Due lezioni imparate sul campo, cablate qui dentro:
 
 import json
 import logging
+import re
 
 import httpx
 from pydantic import BaseModel
@@ -60,7 +61,24 @@ _TOPIC_PROMPT = """Ecco i titoli di idee tech che appartengono allo stesso grupp
 Rispondi ESCLUSIVAMENTE con un JSON: {{"label": "..."}}
 dove "label" è un'etichetta di 2-5 parole che nomina il tema comune di questo gruppo.
 Sii specifico (es. "agenti AI per il codice", non "tecnologia" o "vari").
+Scrivi l'etichetta in ITALIANO, lasciando in inglese solo i termini tecnici che non
+si traducono (es. "agenti AI per il self-hosting"). Non usare altri alfabeti.
 """
+
+
+# Etichette ammesse: ASCII stampabile più le lettere accentate latine. Serve a
+# scartare le risposte in altri alfabeti senza rifiutare "però" o "AI généré".
+_LATIN_LABEL_RE = re.compile(r"^[\x20-\x7EÀ-ſ]+$")
+
+
+def is_plausible_label(label: str) -> bool:
+    """Se un'etichetta di topic è leggibile da chi usa questo radar.
+
+    Serve in due punti: a valle della generazione, per rifiutare la risposta, e
+    a monte, per accorgersi che un topic ne porta una già sbagliata da prima e
+    valga la pena rinominarlo anche se la sua composizione non è cambiata.
+    """
+    return bool(label) and bool(_LATIN_LABEL_RE.match(label))
 
 
 class IdeaInsight(BaseModel):
@@ -151,6 +169,12 @@ class OllamaClient:
         label = str(data.get("label") or "").strip()
         if not label:
             raise OllamaError("etichetta del topic vuota")
+        if not _LATIN_LABEL_RE.match(label):
+            # Il 7B a volte risponde in cinese ("AI开源与应用", "Open-source
+            # macOS工具"): il prompt lo chiede in italiano, ma un prompt non è
+            # una garanzia. Rifiutare fa tenere l'etichetta precedente, che è
+            # sempre meglio di una in un alfabeto che non sai leggere.
+            raise OllamaError(f"etichetta non in alfabeto latino: {label!r}")
         return label
 
 

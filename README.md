@@ -51,10 +51,11 @@ A single **run** walks the whole pipeline: fetch raw items from the sources, emb
 
 ### Scoring
 
-Each idea gets four quality metrics, combined into a weighted average (`quality`) and multiplied by relevance:
+Three metrics are averaged into `quality`, then **two gates multiply** it:
 
 ```
-composite = quality × (relevance_floor + (1 − relevance_floor) × fit)
+composite = quality × gate(fit) × gate(opportunity)
+gate(x)   = floor + (1 − floor) × x
 ```
 
 | Metric | What it measures |
@@ -62,8 +63,10 @@ composite = quality × (relevance_floor + (1 − relevance_floor) × fit)
 | **Heat** | *Speed* of growth, not absolute popularity — **measured**, where history exists, between consecutive engagement observations (stars/day, points/day) in a sliding window; new items fall back to an engagement/age heuristic until a second observation lands. |
 | **Credibility** | Trustworthiness of the source and whether there's an identifiable author. |
 | **Feasibility** | How buildable it is for a team of 1–3 people, estimated by the LLM against an explicit rubric. |
-| **Opportunity** | Recent **and** not yet saturated — the brake that keeps finished projects off the top. |
-| **Fit** | Adherence to your keywords. Not an addend but a **multiplier**: an off-topic idea is pulled down even if it's wildly popular. |
+| **Fit** | Adherence to your keywords. A **gate**: off-topic is pulled down however popular it is. |
+| **Opportunity** | Recent **and** not yet saturated. Also a **gate** — and it had to become one. As a 30%-weighted addend it didn't actually stop anything: n8n, with full saturation and `opportunity` at exactly 0.00, still scored 0.56 and sat fourth on the radar, which is precisely what this project claims not to show you. Multiplying instead puts it at 0.12. There's a test that pins this. |
+
+Two gates compress the scale — the top score on a real 1359-idea archive goes from 0.65 to 0.46 — so `scoring.threshold` is calibrated for the new formula and is not comparable to a pre-gate value.
 
 Above `scoring.threshold`, an idea is promoted to `proposed`. Every parameter lives in [`backend/config.yaml`](backend/config.yaml).
 
@@ -192,7 +195,17 @@ uv run idea-radar heal                     # re-embed what's missing, re-check s
 uv run idea-radar heal --skip-embeddings   # no Ollama call: only re-check singletons
 ```
 
-It never dissolves an idea with more than one item, and between two singletons the older one survives — so a repaired item can't take out the idea that was waiting for it, along with its label and its paid-for summary. If Ollama isn't ready the command says so and falls back to the singleton pass instead of failing.
+`reinsight` regenerates summaries. The LLM insight lives on the *idea*, not the item, so when an idea was a catch-all its summary described only the best of its members — and `rebuild-ideas` spread that text onto every idea born from it, which is how months of model work were preserved but a minority of ideas ended up describing something else.
+
+```bash
+uv run idea-radar reinsight --dry-run   # which ideas, and how long it will take
+uv run idea-radar reinsight             # the above-threshold ones (minutes)
+uv run idea-radar reinsight --all       # every live idea (hours)
+```
+
+There is deliberately **no** "find the wrong ones" filter, because two attempts at building one both failed on real data. Counting words shared with the idea's own items measures the *language*, not the topic — insights are in Italian, items in English, so correct summaries scored zero. Comparing embeddings can't separate "same domain, different artifact", which is exactly this case: the catch-all was full of AI/dev-tools items and so are the ideas born from it — on this archive it flagged 19 ideas, mostly with perfectly good summaries, and missed the two that were visibly broken. So the command doesn't guess: it regenerates by priority, above-threshold ideas first, since those are the ones that reach the digest and the top of the radar.
+
+`heal` never dissolves an idea with more than one item, and between two singletons the older one survives — so a repaired item can't take out the idea that was waiting for it, along with its label and its paid-for summary. If Ollama isn't ready the command says so and falls back to the singleton pass instead of failing.
 
 After changing a clustering threshold, apply it to the archive you already have instead of waiting for it to re-form run by run:
 
@@ -231,7 +244,7 @@ Runtime behaviour lives in [`backend/config.yaml`](backend/config.yaml) — sour
 | `OLLAMA_MODEL` | Insight model (default `qwen2.5:7b`) |
 | `EMBEDDING_MODEL` | Embedding model (default `nomic-embed-text`) |
 
-Four knobs worth knowing: `scoring.threshold` controls how selective the radar is, `clustering.idea_threshold` controls how aggressively duplicate signals merge (higher = only near-identical items collapse), `clustering.cohesion_floor` how homogeneous an idea must stay to keep accepting members (0 disables the check), and `scoring.heat_window_days` sets the sliding window the delta-based heat measures velocity over. The two clustering thresholds are tied to the embedding model: changing `EMBEDDING_MODEL` or the task prefix means re-calibrating them, then `rebuild-ideas`.
+Five knobs worth knowing: `scoring.threshold` controls how selective the radar is (and is tied to the two-gate formula — don't carry an old value over), `scoring.opportunity_floor` how much a saturated market keeps (0 erases it, 1 disables the gate), `clustering.idea_threshold` controls how aggressively duplicate signals merge (higher = only near-identical items collapse), `clustering.cohesion_floor` how homogeneous an idea must stay to keep accepting members (0 disables the check), and `scoring.heat_window_days` sets the sliding window the delta-based heat measures velocity over. The two clustering thresholds are tied to the embedding model: changing `EMBEDDING_MODEL` or the task prefix means re-calibrating them, then `rebuild-ideas`.
 
 Each source is one entry under `sources` with a `type` (`hn`, `hn_algolia`, `github`, `arxiv`, `producthunt`, `rss`) and its own options (`feeds` for RSS, `categories` for arXiv, `lookback_hours`/`min_points` for the Algolia backfill). The `producthunt` source ships **disabled**: enable it after setting `PRODUCTHUNT_TOKEN`. All the per-source scoring parameters live in each collector's `SourceProfile` (`backend/app/sources/<source>.py`), not in the scorer.
 
@@ -291,7 +304,7 @@ Recently shipped: semantic deduplication end-to-end · per-idea insight cache ·
 
 Also shipped: **drift-proof clustering** — merges decided member-by-member (single link + cohesion) instead of on the centroid, with thresholds calibrated against a ground truth of cross-source duplicates · **`rebuild-ideas`** — re-aggregates the stored archive under new thresholds, preserving items, engagement history, user actions and paid-for insights · **honest trends** — a topic's `avg_composite` is measured on each idea's latest known score, so a run with nothing new draws a flat line instead of a fake crash to zero · **arXiv actually collecting** — it was requesting `http`, getting a redirect the Atom parser then choked on, and failing invisibly because a source that fails last never reached the run record · **a centroid index reused for a whole run** instead of re-reading every idea for every item: 66s → 4s on the clustering step of a 130-item run, measured on a 1300-idea archive.
 
-And: **`heal`** for the sediment the incremental pipeline can't revisit · **`digest`** as a markdown briefing · **run history with per-source outcomes** in the Monitor · **Topic view that scales** to hundreds of themes · **Trend → Topic drill-down** · HTML entities stripped at collection (Hacker News serves escaped markup, and it was reaching the summaries).
+And: **opportunity as a gate, not an addend** — the scoring change that finally makes the opening claim of this README true · **`heal`** for the sediment the incremental pipeline can't revisit · **`digest`** as a markdown briefing · **run history with per-source outcomes** in the Monitor · **Topic view that scales** to hundreds of themes · **Trend → Topic drill-down** · HTML entities stripped at collection (Hacker News serves escaped markup, and it was reaching the summaries).
 
 Next:
 

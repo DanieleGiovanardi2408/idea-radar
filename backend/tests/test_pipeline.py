@@ -59,7 +59,12 @@ def _config(idea_threshold: float = 0.99) -> AppConfig:
     return AppConfig(
         sources=[],
         keywords=["ai"],
-        scoring=ScoringConfig(weights={"heat": 0.5, "opportunity": 0.5}, threshold=0.4),
+        # `opportunity` non è più un peso: è un moltiplicatore. Qui serve una
+        # metrica sempre positiva (la credibilità ha una base per fonte) perché
+        # il composite non sia zero per costruzione.
+        scoring=ScoringConfig(
+            weights={"heat": 0.5, "credibility": 0.5}, threshold=0.25
+        ),
         clustering=ClusteringConfig(
             idea_threshold=idea_threshold, topic_threshold=0.8, llm_topic_labels=True
         ),

@@ -77,8 +77,17 @@ class OllamaEmbedder:
 _EMBED_TASK_PREFIX = "clustering: "
 
 
+def text_for_embedding(text: str) -> str:
+    """Testo pronto per l'embedding, col prefisso di task che il modello esige.
+
+    Qualunque cosa si voglia confrontare con gli embedding già in archivio deve
+    passare da qui: senza lo stesso prefisso i vettori non sono comparabili.
+    """
+    return f"{_EMBED_TASK_PREFIX}{text}"
+
+
 def item_text_for_embedding(item: Item) -> str:
-    return f"{_EMBED_TASK_PREFIX}{item.title}\n{(item.text or '')[:1000]}"
+    return text_for_embedding(f"{item.title}\n{(item.text or '')[:1000]}")
 
 
 def embed_item(item: Item, embedder: OllamaEmbedder) -> Vector | None:

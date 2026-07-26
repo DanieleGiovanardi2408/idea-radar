@@ -95,6 +95,31 @@ def newly_proposed(
     return found
 
 
+def _plural(n: int, one: str, many: str) -> str:
+    return one if n == 1 else many
+
+
+def _theme_of(idea: Idea, min_ideas: int) -> str | None:
+    """Il tema dell'idea, se è davvero un tema e non il titolo di un'altra idea.
+
+    Un topic sotto ``topic_label_min_ideas`` non viene nominato dall'LLM ed erede
+    il titolo della PRIMA idea che lo ha aperto — che spesso non è nemmeno questa.
+    Stamparlo dà righe come "tema *Why I Built OpenAgentFlow: Decoupling
+    Multi-Agent Workflows from Framework Boile*" (troncata a 80 caratteri) accanto
+    a un'idea su n8n. Il criterio non è la forma della stringa ma la stessa regola
+    che decide il naming: sotto quella soglia l'etichetta è ereditata, quindi non
+    è un tema e non si stampa.
+    """
+    if idea.topic is None:
+        return None
+    if len(idea.topic.ideas) < max(min_ideas, 1):
+        return None
+    label = clean_html_text(idea.topic.label)
+    if not label or label[:60] == clean_html_text(idea.label)[:60]:
+        return None
+    return label
+
+
 def _format_window(since: datetime | None, now: datetime) -> str:
     if since is None:
         return "primo digest: tutto ciò che è sopra soglia in archivio"
@@ -116,7 +141,14 @@ def render_digest(
     """Il digest in markdown. Nessuna scrittura: chi chiama decide dove metterlo."""
     now = now or utcnow()
     ideas = newly_proposed(session, config, since)
-    trends = [t for t in topic_trends(session) if t["delta_ideas"] > 0]
+    # Anche tra i mover si scartano i "temi" che sono solo il titolo dell'idea
+    # che li ha aperti: un gruppo da due idee non è un tema di cui dare notizia.
+    min_named = max(config.clustering.topic_label_min_ideas, 1)
+    trends = [
+        t
+        for t in topic_trends(session)
+        if t["delta_ideas"] > 0 and t["n_ideas"] >= min_named
+    ]
     trends.sort(key=lambda t: (t["delta_ideas"], t["avg_composite"]), reverse=True)
     n_runs = len(
         session.exec(select(Run).where(Run.status == RunStatus.DONE)).all()
@@ -139,15 +171,16 @@ def render_digest(
         ]
     else:
         for idea, score, promoted in ideas[:max_ideas]:
-            topic = idea.topic.label if idea.topic else "senza tema"
             n_items = len(idea.items)
             lines.append(f"### {clean_html_text(idea.label)}")
             lines.append("")
-            lines.append(
-                f"**{score.composite:.2f}** · tema *{topic}* · "
-                f"{n_items} segnale{'' if n_items == 1 else 'i'} · "
-                f"sopra soglia dal {promoted:%d/%m}"
-            )
+            meta = [f"**{score.composite:.2f}**"]
+            theme = _theme_of(idea, config.clustering.topic_label_min_ideas)
+            if theme:
+                meta.append(f"tema *{theme}*")
+            meta.append(f"{n_items} {_plural(n_items, 'segnale', 'segnali')}")
+            meta.append(f"sopra soglia dal {promoted:%d/%m}")
+            lines.append(" · ".join(meta))
             lines.append("")
             # I collector ora ripuliscono l'HTML in ingresso, ma le righe già in
             # archivio se lo portano dietro: si ripulisce anche in lettura.
@@ -180,8 +213,10 @@ def render_digest(
         lines += ["Nessun tema è cresciuto tra gli ultimi run.", ""]
     else:
         for trend in trends[:max_movers]:
+            delta = trend["delta_ideas"]
             lines.append(
-                f"- **{trend['label']}** — +{trend['delta_ideas']} idee "
+                f"- **{clean_html_text(trend['label'])}** — "
+                f"+{delta} {_plural(delta, 'idea', 'idee')} "
                 f"(ora {trend['n_ideas']}, composite medio "
                 f"{trend['avg_composite']:.2f})"
             )

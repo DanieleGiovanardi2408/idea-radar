@@ -1,5 +1,7 @@
 from datetime import timedelta
 
+import pytest
+
 from app.appconfig import AppConfig, ScoringConfig
 from app.llm import IdeaInsight
 from app.models import Difficulty, IdeaStatus, Item, utcnow
@@ -11,12 +13,8 @@ def _cfg(threshold: float = 0.5) -> AppConfig:
         sources=[],
         keywords=["ai", "devtools"],
         scoring=ScoringConfig(
-            weights={
-                "heat": 0.25,
-                "credibility": 0.25,
-                "feasibility": 0.25,
-                "opportunity": 0.25,
-            },
+            # `opportunity` non è un peso: è un moltiplicatore, come `fit`.
+            weights={"heat": 0.34, "credibility": 0.33, "feasibility": 0.33},
             threshold=threshold,
         ),
     )
@@ -55,6 +53,39 @@ def test_all_metrics_in_unit_range_and_fit_full_match() -> None:
     ):
         assert 0.0 <= value <= 1.0
     assert res.fit == 1.0  # entrambe le keyword presenti
+
+
+def test_a_closed_market_is_crushed_even_when_it_is_hot() -> None:
+    """La promessa del README, resa non negoziabile.
+
+    "Un progetto con 100k stelle accumulate in sei anni è un mercato *chiuso*."
+    Con `opportunity` come addendo al 30% non lo era: n8n, saturazione piena e
+    opportunity 0.00, restava a 0.56 e quarto in classifica. Da moltiplicatore
+    scende a 0.12. Il confronto è con un progetto giovane a parità di tutto il
+    resto — keyword, autore, e anzi con MENO engagement.
+    """
+    giant = _github(stars=120_000, age_days=6 * 365)
+    newcomer = _github(stars=2_000, age_days=90)
+
+    closed = score_item(giant, _insight(Difficulty.MED), _cfg())
+    open_market = score_item(newcomer, _insight(Difficulty.MED), _cfg())
+
+    assert closed.opportunity < 0.05  # riconosciuto come saturo
+    assert closed.composite < open_market.composite / 2
+    assert closed.status == IdeaStatus.PROCESSED  # fuori dalle proposte
+
+
+def test_the_two_gates_can_be_disabled_from_config() -> None:
+    """Con i floor a 1 i moltiplicatori non contano: resta la sola qualità."""
+    item = _github(stars=120_000, age_days=6 * 365, title="niente a che vedere")
+    config = _cfg()
+    config.scoring.relevance_floor = 1.0
+    config.scoring.opportunity_floor = 1.0
+
+    res = score_item(item, _insight(Difficulty.MED), config)
+
+    quality = 0.34 * res.heat + 0.33 * res.credibility + 0.33 * res.feasibility
+    assert res.composite == pytest.approx(quality, abs=1e-9)
 
 
 def test_fit_ignores_substring_matches() -> None:
