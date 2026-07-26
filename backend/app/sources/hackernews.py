@@ -7,7 +7,7 @@ import httpx
 from app.appconfig import AppConfig, SourceConfig
 from app.config import Settings
 from app.models import Item
-from app.sources.base import register_source
+from app.sources.base import clean_html_text, register_source
 from app.sources.profiles import SourceProfile, register_profile
 
 BASE_URL = "https://hacker-news.firebaseio.com/v0"
@@ -70,12 +70,16 @@ class HackerNewsSource:
             if created
             else None
         )
+        # L'API di HN restituisce il testo dei post in HTML con le entità
+        # codificate (``&#x2F;``, ``<p>``): senza ripulirlo finisce così com'è
+        # nel riassunto dell'idea. Il ``raw_json`` conserva l'originale.
+        text = raw.get("text")
         return Item(
             source=SOURCE_NAME,
             external_id=str(raw["id"]),
-            title=raw.get("title", "(senza titolo)"),
+            title=clean_html_text(raw.get("title") or "(senza titolo)"),
             url=raw.get("url"),
-            text=raw.get("text"),
+            text=clean_html_text(text) if text else None,
             author=raw.get("by"),
             engagement_json={
                 "score": raw.get("score", 0),

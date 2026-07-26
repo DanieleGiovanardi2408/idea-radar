@@ -13,7 +13,6 @@ viene saltato e gli altri proseguono.
 
 import hashlib
 import logging
-import re
 import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -24,7 +23,7 @@ import httpx
 from app.appconfig import AppConfig, SourceConfig
 from app.config import Settings
 from app.models import Item
-from app.sources.base import USER_AGENT, register_source
+from app.sources.base import USER_AGENT, clean_html_text, register_source
 from app.sources.profiles import SourceProfile, register_profile
 
 logger = logging.getLogger(__name__)
@@ -36,7 +35,6 @@ SOURCE_NAME = "rss"
 PROFILE = SourceProfile(credibility_base=0.40)
 register_profile(SOURCE_NAME, PROFILE)
 _ATOM = "{http://www.w3.org/2005/Atom}"
-_TAG_RE = re.compile(r"<[^>]+>")
 
 # Pausa tra una richiesta e l'altra: evita di colpire lo stesso host con feed
 # consecutivi (es. i due r/... di fila), causa tipica del 429.
@@ -49,8 +47,6 @@ MAX_RETRY_WAIT = 30.0
 DEFAULT_RETRY_WAIT = 5.0
 
 
-def _strip_html(text: str) -> str:
-    return re.sub(r"\s+", " ", _TAG_RE.sub(" ", text)).strip()
 
 
 def _retry_after_seconds(resp: httpx.Response) -> float:
@@ -204,9 +200,9 @@ class RssSource:
         return Item(
             source=SOURCE_NAME,
             external_id=external_id,
-            title=_strip_html(title)[:300],
+            title=clean_html_text(title)[:300],
             url=link,
-            text=_strip_html(body)[:2000] if body else None,
+            text=clean_html_text(body)[:2000] if body else None,
             author=author,
             engagement_json={},
             created_at=_parse_date(published),

@@ -1,13 +1,18 @@
 """CLI Typer di Idea Radar."""
 
+from datetime import datetime
+
 import typer
 
 from app.appconfig import get_config
 from app.clustering import sweep_topic_thresholds
 from app.config import get_settings
-from app.db import get_session, init_db
+from app.db import DATA_DIR, get_session, init_db
+from app.digest import last_digest_at, render_digest, write_digest
+from app.healing import items_without_embedding
 from app.models import IdeaStatus, utcnow
 from app.pipeline import (
+    execute_heal,
     execute_preview_rebuild,
     execute_rebuild_ideas,
     execute_recluster,
@@ -105,6 +110,119 @@ def run(
         f"{summary['n_ideas_processed']} processed, "
         f"{summary['n_topics']} topic."
     )
+
+
+@app.command()
+def digest(
+    stdout: bool = typer.Option(
+        False, "--stdout", help="Stampa il digest invece di salvarlo su file."
+    ),
+    since: str = typer.Option(
+        None,
+        "--since",
+        help="Finestra da questa data (ISO, es. 2026-07-20). Default: ultimo digest.",
+    ),
+    limit: int = typer.Option(10, help="Quante idee al massimo nel digest."),
+) -> None:
+    """Report markdown di cosa è emerso da quando l'hai guardato l'ultima volta.
+
+    Le "nuove" sono le idee il cui PRIMO punteggio sopra soglia cade nella
+    finestra — non quelle viste per la prima volta: un'idea può essere in
+    archivio da settimane e salire adesso, ed è quella la notizia. La finestra
+    parte dall'ultimo digest scritto in `data/digests/`.
+    """
+    init_db()
+    config = get_config()
+
+    cutoff = None
+    if since:
+        try:
+            cutoff = datetime.fromisoformat(since)
+        except ValueError:
+            typer.echo(f"Data non valida: {since!r}. Usa il formato ISO, es. 2026-07-20.")
+            raise typer.Exit(2)
+    else:
+        cutoff = last_digest_at(DATA_DIR)
+
+    with get_session() as session:
+        content = render_digest(session, config, since=cutoff, max_ideas=limit)
+
+    if stdout:
+        typer.echo(content)
+        return
+
+    path = write_digest(DATA_DIR, content)
+    # Una riga di riepilogo: il file lo si apre solo se c'è qualcosa dentro.
+    headline = next(
+        (line[4:] for line in content.splitlines() if line.startswith("### ")), None
+    )
+    typer.echo(f"Digest scritto in {path}")
+    if headline:
+        typer.echo(f"  in cima: {headline}")
+    else:
+        typer.echo("  nessuna idea nuova sopra soglia in questa finestra.")
+
+
+@app.command()
+def heal(
+    skip_embeddings: bool = typer.Option(
+        False,
+        "--skip-embeddings",
+        help="Non chiamare Ollama: ripassa solo i singleton già vettorizzati.",
+    ),
+) -> None:
+    """Ripara i singleton lasciati dai run degradati.
+
+    Due sedimenti che il flusso normale non recupera: gli item entrati con
+    Ollama giù (senza embedding non sono aggregabili, e restano tali per sempre)
+    e le idee da un solo item che oggi avrebbero un posto — il legame singolo
+    dipende dall'ordine di arrivo. Non tocca le idee con più item.
+    """
+    init_db()
+    settings = get_settings()
+
+    embed_missing = not skip_embeddings
+    if embed_missing:
+        with get_session() as session:
+            pending = len(items_without_embedding(session))
+        if pending:
+            ready, why = ollama_preflight(settings)
+            if not ready:
+                typer.echo(
+                    f"{pending} item senza embedding, ma {why}. "
+                    "Ripasso solo i singleton già vettorizzati."
+                )
+                embed_missing = False
+            else:
+                typer.echo(f"{pending} item senza embedding: li rifaccio.")
+
+    typer.echo("Riparazione in corso…")
+    try:
+        summary = execute_heal(embed_missing=embed_missing, on_progress=_show)
+    except RunLockBusy:
+        typer.echo(
+            "Un run è in corso e la riparazione toccherebbe le stesse idee. "
+            "Riprova a run finito."
+        )
+        raise typer.Exit(1)
+    typer.echo("")  # chiude la riga di avanzamento
+
+    if not summary["n_merged"] and not summary["n_embedded"]:
+        typer.echo(
+            f"Niente da riparare — {summary['n_singleton_checked']} idee da un "
+            "solo item ripassate, nessuna ha un posto migliore."
+        )
+    else:
+        typer.echo(
+            f"Fatto — {summary['n_embedded']} embedding rifatti, "
+            f"{summary['n_merged']} singleton riassorbiti "
+            f"({summary['n_ideas']} idee, {summary['n_topics']} topic)."
+        )
+    if summary["n_without_embedding_left"]:
+        typer.echo(
+            f"  {summary['n_without_embedding_left']} item restano senza "
+            "embedding: riprova con Ollama attivo."
+        )
 
 
 @app.command(name="rebuild-ideas")

@@ -40,7 +40,13 @@ export const api = {
     if (!res.ok) throw new Error(`HTTP ${res.status} su /ideas/${id}`)
     return res.json()
   },
-  topics: () => get<TopicOut[]>('/topics'),
+  topics: (params?: { minIdeas?: number; orderBy?: string }) => {
+    const q = new URLSearchParams()
+    if (params?.minIdeas !== undefined) q.set('min_ideas', String(params.minIdeas))
+    if (params?.orderBy) q.set('order_by', params.orderBy)
+    const qs = q.toString()
+    return get<TopicOut[]>(`/topics${qs ? `?${qs}` : ''}`)
+  },
   trends: () => get<TrendOut[]>('/trends'),
   stats: () => get<StatsOut>('/stats'),
   runs: () => get<RunOut[]>('/runs'),

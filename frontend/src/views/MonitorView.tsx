@@ -1,6 +1,13 @@
+import { useState } from 'react'
 import { AnimatedNumber } from '../components/motion'
-import { EmptyState, ErrorNotice, Panel, StatCard } from '../components/ui'
-import { useStats } from '../hooks/useRadarData'
+import {
+  EmptyState,
+  ErrorNotice,
+  IconChevron,
+  Panel,
+  StatCard,
+} from '../components/ui'
+import { useRuns, useStats } from '../hooks/useRadarData'
 import type { RunOut, StatsOut } from '../types'
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -128,27 +135,142 @@ function RunProgress({ run }: { run: RunOut }) {
       {run.sources && Object.keys(run.sources).length > 0 && (
         <div className="mt-4">
           <h4 className="hud text-slate-600">Fonti in questo run</h4>
-          <ul className="mt-2 space-y-1.5">
-            {Object.entries(run.sources).map(([name, s]) => (
-              <li
-                key={name}
-                className="flex items-center justify-between rounded-xl bg-white/[0.03] px-3 py-2 text-xs ring-1 ring-white/[0.05]"
-              >
-                <span className="text-slate-300">{name.replace('Source', '')}</span>
-                {s.error ? (
-                  <span className="text-flare">errore: {s.error.slice(0, 40)}</span>
-                ) : (
-                  <span className="tabular-nums text-slate-500">
-                    {s.fetched} raccolti ·{' '}
-                    <span className={s.new > 0 ? 'text-phosphor/80' : ''}>
-                      {s.new} nuovi
-                    </span>
+          <SourceOutcomes run={run} />
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+const STATUS_DOT: Record<string, string> = {
+  done: 'bg-phosphor/70',
+  failed: 'bg-flare/80',
+  running: 'bg-signal/80',
+}
+
+/** Esiti per fonte di un run: è qui che si vede una fonte che non porta nulla. */
+function SourceOutcomes({ run }: { run: RunOut }) {
+  const entries = Object.entries(run.sources ?? {})
+  if (entries.length === 0) {
+    return (
+      <p className="py-2 text-xs text-slate-600">
+        Nessun dettaglio per fonte registrato in questo run.
+      </p>
+    )
+  }
+  return (
+    <ul className="grid gap-1.5 py-2 sm:grid-cols-2">
+      {entries.map(([name, source]) => (
+        <li
+          key={name}
+          className="flex items-center justify-between gap-3 rounded-lg bg-white/[0.03] px-2.5 py-1.5 text-xs ring-1 ring-white/[0.05]"
+        >
+          <span className="shrink-0 text-slate-300">
+            {name.replace('Source', '')}
+          </span>
+          {source.error ? (
+            <span className="truncate text-flare" title={source.error}>
+              {source.error}
+            </span>
+          ) : (
+            <span className="tabular-nums text-slate-500">
+              {source.fetched} raccolti ·{' '}
+              <span className={source.new > 0 ? 'text-phosphor/80' : ''}>
+                {source.new} nuovi
+              </span>
+            </span>
+          )}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/** Storico run: una riga per run, espandibile sugli esiti per fonte. */
+function RunHistory() {
+  const [open, setOpen] = useState(false)
+  const [expanded, setExpanded] = useState<number | null>(null)
+  const { data: runs, isError } = useRuns({ enabled: open })
+
+  return (
+    <Panel className="p-5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-3 text-left"
+      >
+        <h3 className="hud text-slate-500">Storico dei run</h3>
+        <span className="flex items-center gap-2 text-xs text-slate-500">
+          {open ? 'chiudi' : 'apri'}
+          <IconChevron open={open} />
+        </span>
+      </button>
+
+      {open && isError && (
+        <p className="mt-3 text-xs text-flare">
+          Impossibile caricare lo storico dei run.
+        </p>
+      )}
+      {open && !runs && !isError && (
+        <p className="mt-3 text-xs text-slate-600">Caricamento…</p>
+      )}
+
+      {open && runs && (
+        <ul className="mt-3 divide-y divide-white/[0.05]">
+          {runs.map((run) => {
+            const isOpen = expanded === run.id
+            const failedSources = Object.values(run.sources ?? {}).filter(
+              (s) => s.error,
+            ).length
+            return (
+              <li key={run.id}>
+                <button
+                  type="button"
+                  onClick={() => setExpanded(isOpen ? null : run.id)}
+                  aria-expanded={isOpen}
+                  className="flex w-full items-center justify-between gap-3 py-2.5 text-left text-xs hover:text-slate-200"
+                >
+                  <span className="text-slate-400">
+                    <span className="font-display font-medium text-slate-300">
+                      #{run.id}
+                    </span>{' '}
+                    · {formatTime(run.started_at)}
                   </span>
+                  <span className="flex items-center gap-3 tabular-nums text-slate-600">
+                    {run.n_items} segnali · {run.n_ideas_proposed} sopra soglia
+                    {failedSources > 0 && (
+                      <span
+                        className="text-flare"
+                        title={`${failedSources} fonti in errore`}
+                      >
+                        {failedSources} in errore
+                      </span>
+                    )}
+                    <span
+                      className={`size-1.5 rounded-full ${STATUS_DOT[run.status] ?? 'bg-slate-600'}`}
+                      title={run.status}
+                    />
+                    <IconChevron open={isOpen} className="text-slate-600" />
+                  </span>
+                </button>
+                {isOpen && (
+                  <div className="pb-1">
+                    {run.error && (
+                      <p className="pb-2 text-xs text-flare">{run.error}</p>
+                    )}
+                    <SourceOutcomes run={run} />
+                  </div>
                 )}
               </li>
-            ))}
-          </ul>
-        </div>
+            )
+          })}
+          {runs.length === 0 && (
+            <li className="py-2 text-xs text-slate-600">
+              Nessun run in archivio.
+            </li>
+          )}
+        </ul>
       )}
     </Panel>
   )
@@ -210,34 +332,7 @@ export function MonitorView() {
         </Panel>
       </div>
 
-      {stats.recent_runs.length > 1 && (
-        <Panel className="p-5">
-          <h3 className="hud text-slate-500">Run recenti</h3>
-          <ul className="mt-3 divide-y divide-white/[0.05]">
-            {[...stats.recent_runs].reverse().map((run) => (
-              <li key={run.id} className="flex items-center justify-between py-2.5 text-xs">
-                <span className="text-slate-400">
-                  <span className="font-display font-medium text-slate-300">#{run.id}</span> ·{' '}
-                  {formatTime(run.started_at)}
-                </span>
-                <span className="flex items-center gap-3 tabular-nums text-slate-600">
-                  {run.n_items} segnali · {run.n_ideas_proposed} sopra soglia
-                  <span
-                    className={`size-1.5 rounded-full ${
-                      run.status === 'done'
-                        ? 'bg-phosphor/70'
-                        : run.status === 'failed'
-                          ? 'bg-flare/80'
-                          : 'bg-signal/80'
-                    }`}
-                    title={run.status}
-                  />
-                </span>
-              </li>
-            ))}
-          </ul>
-        </Panel>
-      )}
+      <RunHistory />
     </div>
   )
 }

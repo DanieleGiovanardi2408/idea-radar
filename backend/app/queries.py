@@ -98,8 +98,22 @@ def idea_history(session: Session, idea_id: int) -> list[Score]:
     )
 
 
-def topics_overview(session: Session) -> list[dict]:
-    """Topic con numero di idee, item e composite medio dell'ultimo run."""
+TOPIC_ORDERS = ("top_composite", "n_ideas", "last_seen")
+
+
+def topics_overview(
+    session: Session,
+    *,
+    min_ideas: int = 1,
+    order_by: str = "top_composite",
+) -> list[dict]:
+    """Topic con numero di idee, item e composite medio dell'ultimo run.
+
+    ``min_ideas`` nasconde i topic troppo piccoli per essere un tema: con le
+    soglie tarate i topic sono centinaia e la maggioranza ha una sola idea, che
+    è vero ma illeggibile da scorrere. ``order_by`` sceglie tra il punteggio
+    migliore (default), la dimensione e la data dell'ultimo segnale.
+    """
     latest = latest_scores(session)
     by_topic: dict[int, list[Idea]] = defaultdict(list)
     for idea in session.exec(select(Idea)).all():
@@ -115,7 +129,7 @@ def topics_overview(session: Session) -> list[dict]:
     overview: list[dict] = []
     for topic in session.exec(select(Topic)).all():
         ideas = by_topic.get(topic.id, [])
-        if not ideas:
+        if len(ideas) < max(min_ideas, 1):
             continue
         composites = [latest[i.id].composite for i in ideas if i.id in latest]
         overview.append(
@@ -131,7 +145,10 @@ def topics_overview(session: Session) -> list[dict]:
                 "last_seen": topic.last_seen,
             }
         )
-    overview.sort(key=lambda t: t["top_composite"], reverse=True)
+    key = order_by if order_by in TOPIC_ORDERS else "top_composite"
+    # A parità (frequentissima: tanti topic con lo stesso numero di idee) vince
+    # il punteggio migliore, così l'ordine è stabile e utile.
+    overview.sort(key=lambda t: (t[key], t["top_composite"]), reverse=True)
     return overview
 
 

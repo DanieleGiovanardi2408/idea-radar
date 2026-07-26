@@ -113,6 +113,45 @@ def test_topics_endpoint(client: TestClient, session: Session) -> None:
     assert topics[0]["n_proposed"] == 1
 
 
+def _extra_topic(session: Session, label: str, n_ideas: int) -> Topic:
+    topic = Topic(label=label)
+    session.add(topic)
+    session.commit()
+    session.refresh(topic)
+    for n in range(n_ideas):
+        item = Item(source="hn", external_id=f"{label}-{n}", title=f"{label} {n}")
+        idea = Idea(label=f"{label} {n}", topic_id=topic.id)
+        idea.items = [item]
+        session.add(idea)
+    session.commit()
+    return topic
+
+
+def test_topics_can_hide_the_ones_with_too_few_ideas(
+    client: TestClient, session: Session
+) -> None:
+    """Con le soglie tarate i topic sono centinaia e quasi tutti da una idea."""
+    _seed(session)  # topic "Agenti AI" con 1 idea
+    _extra_topic(session, "Tema grosso", n_ideas=3)
+
+    assert len(client.get("/topics").json()) == 2
+    filtered = client.get("/topics?min_ideas=2").json()
+    assert [t["label"] for t in filtered] == ["Tema grosso"]
+
+
+def test_topics_can_be_ordered_by_size(client: TestClient, session: Session) -> None:
+    _seed(session)  # 1 idea, ma con uno score: vince per top_composite
+    _extra_topic(session, "Tema grosso", n_ideas=3)  # nessuno score
+
+    by_score = client.get("/topics").json()
+    by_size = client.get("/topics?order_by=n_ideas").json()
+
+    assert by_score[0]["label"] == "Agenti AI"
+    assert by_size[0]["label"] == "Tema grosso"
+    # Un ordinamento inventato non deve rompere nulla: si torna al default.
+    assert client.get("/topics?order_by=inesistente").json() == by_score
+
+
 def test_trends_endpoint(client: TestClient, session: Session) -> None:
     _seed(session, runs=2)
     trends = client.get("/trends").json()

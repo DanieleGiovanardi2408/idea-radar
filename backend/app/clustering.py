@@ -49,6 +49,10 @@ class IdeaIndex:
         if idea.id is not None and idea.centroid_json:
             self._units[idea.id] = unit(idea.centroid_json)
 
+    def forget(self, idea_id: int) -> None:
+        """Toglie un'idea dall'indice (dissolta perché i suoi item sono migrati)."""
+        self._units.pop(idea_id, None)
+
     def near(self, probe: Vector, min_sim: float) -> list[int]:
         """Id delle idee il cui centroide è almeno ``min_sim`` vicino alla sonda."""
         return [
@@ -98,6 +102,45 @@ def _create_idea(session: Session, item: Item, embedding: Vector | None) -> Idea
     return idea
 
 
+def best_idea_for(
+    session: Session,
+    embedding: Vector,
+    threshold: float,
+    *,
+    cohesion_floor: float = 0.0,
+    index: IdeaIndex | None = None,
+    exclude: set[int] | None = None,
+) -> Idea | None:
+    """L'idea che può accogliere questo embedding, o ``None``.
+
+    È il criterio di merge in un posto solo: lo usano sia il flusso incrementale
+    di un run (``attach_item_to_idea``) sia la riparazione dei singleton
+    (``app.healing``), così non possono divergere. ``exclude`` serve a chi sta
+    valutando un item che già appartiene a un'idea e non deve ritrovare quella.
+    """
+    index = index if index is not None else IdeaIndex(session)
+    excluded = exclude or set()
+    probe = unit(embedding)
+
+    best: Idea | None = None
+    best_sim = -1.0
+    # Il pre-filtro scarta in un prodotto scalare le idee lontane; sulle poche
+    # che restano si decide guardando i membri a uno a uno.
+    for idea_id in index.near(probe, threshold - _PREFILTER_MARGIN):
+        if idea_id in excluded:
+            continue
+        idea = session.get(Idea, idea_id)
+        if idea is None:
+            continue
+        members = [unit(vector) for vector in _member_vectors(idea)]
+        nearest, farthest = _link_scores(probe, members)
+        if nearest < threshold or farthest < cohesion_floor:
+            continue
+        if nearest > best_sim:
+            best, best_sim = idea, nearest
+    return best
+
+
 def attach_item_to_idea(
     session: Session,
     item: Item,
@@ -136,22 +179,9 @@ def attach_item_to_idea(
         return _create_idea(session, item, None)
 
     index = index if index is not None else IdeaIndex(session)
-    probe = unit(embedding)
-
-    best: Idea | None = None
-    best_sim = -1.0
-    # Il pre-filtro scarta in un prodotto scalare le idee lontane; sulle poche
-    # che restano si decide guardando i membri a uno a uno.
-    for idea_id in index.near(probe, threshold - _PREFILTER_MARGIN):
-        idea = session.get(Idea, idea_id)
-        if idea is None:
-            continue
-        members = [unit(vector) for vector in _member_vectors(idea)]
-        nearest, farthest = _link_scores(probe, members)
-        if nearest < threshold or farthest < cohesion_floor:
-            continue
-        if nearest > best_sim:
-            best, best_sim = idea, nearest
+    best = best_idea_for(
+        session, embedding, threshold, cohesion_floor=cohesion_floor, index=index
+    )
 
     if best is not None:
         best.items.append(item)

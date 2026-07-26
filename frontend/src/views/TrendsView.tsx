@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react'
+import { Link } from 'react-router-dom'
 import { staggerDelay } from '../components/motion'
 import {
   AreaSpark,
@@ -91,9 +92,12 @@ export function TrendsView() {
           <div className="hud text-phosphor/70">in ascesa adesso</div>
           <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
             <div className="min-w-0">
-              <h3 className="font-display text-xl font-semibold tracking-tight text-slate-50">
+              <Link
+                to={`/topics/${mover.topic_id}`}
+                className="font-display text-xl font-semibold tracking-tight text-slate-50 outline-none hover:text-phosphor focus-visible:ring-2 focus-visible:ring-phosphor/40"
+              >
                 {mover.label}
-              </h3>
+              </Link>
               <div className="mt-2 flex items-center gap-3">
                 <DeltaChip value={mover.delta_ideas} />
                 <span className="text-xs text-slate-500">
@@ -124,8 +128,12 @@ export function TrendsView() {
             interactive
             className="stagger flex items-center gap-4 p-4"
           >
-            <div
-              className="flex min-w-0 flex-1 items-center gap-4"
+            {/* Il pannello era già `interactive` ma non portava da nessuna parte:
+                ora è il link al tema, aperto e pronto da leggere. */}
+            <Link
+              to={`/topics/${trend.topic_id}`}
+              aria-label={`Apri il tema ${trend.label}`}
+              className="flex min-w-0 flex-1 items-center gap-4 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-phosphor/40"
               style={staggerDelay(index) as CSSProperties}
             >
               <div className="min-w-0 flex-1">
@@ -145,7 +153,7 @@ export function TrendsView() {
                 tone={trendTone(trend.delta_ideas)}
                 format={(v, i) => `${v} idee · ${shortDate(trend.points[i].started_at)}`}
               />
-            </div>
+            </Link>
           </Panel>
         ))}
       </div>

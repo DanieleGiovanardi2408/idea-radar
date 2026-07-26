@@ -314,8 +314,16 @@ def update_idea(
 
 
 @app.get("/topics", response_model=list[TopicOut])
-def list_topics(session: Session = Depends(get_db)) -> list[TopicOut]:
-    return [TopicOut(**t) for t in topics_overview(session)]
+def list_topics(
+    session: Session = Depends(get_db),
+    min_ideas: int = Query(default=1, ge=1, le=100),
+    order_by: str = Query(default="top_composite", pattern="^[a-z_]+$"),
+) -> list[TopicOut]:
+    """Topic vivi. ``min_ideas=2`` scarta i temi da una sola idea."""
+    return [
+        TopicOut(**t)
+        for t in topics_overview(session, min_ideas=min_ideas, order_by=order_by)
+    ]
 
 
 @app.get("/trends", response_model=list[TrendOut])

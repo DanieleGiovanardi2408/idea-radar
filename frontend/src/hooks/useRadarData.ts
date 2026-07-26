@@ -48,11 +48,29 @@ export function useIdeas(opts?: { includeDismissed?: boolean; enabled?: boolean 
   })
 }
 
-export function useTopics() {
+export type TopicOrder = 'top_composite' | 'n_ideas' | 'last_seen'
+
+export function useTopics(opts?: { minIdeas?: number; orderBy?: TopicOrder }) {
+  const running = useIsRunning()
+  const minIdeas = opts?.minIdeas ?? 1
+  const orderBy = opts?.orderBy ?? 'top_composite'
+  return useQuery({
+    queryKey: ['topics', { minIdeas, orderBy }],
+    queryFn: () => api.topics({ minIdeas, orderBy }),
+    refetchInterval: liveInterval(running),
+  })
+}
+
+/** Le idee di UN topic, chieste al server invece di filtrare la lista globale.
+ *
+ *  `/ideas` è paginato (100 di default): con più di mille idee in archivio
+ *  filtrare in locale mostrerebbe solo quelle dei topic in cima. */
+export function useTopicIdeas(topicId: number | null) {
   const running = useIsRunning()
   return useQuery({
-    queryKey: ['topics'],
-    queryFn: api.topics,
+    queryKey: ['ideas', { topicId }],
+    queryFn: () => api.ideas({ topic_id: topicId as number }),
+    enabled: topicId !== null,
     refetchInterval: liveInterval(running),
   })
 }
@@ -62,6 +80,17 @@ export function useTrends() {
   return useQuery({
     queryKey: ['trends'],
     queryFn: api.trends,
+    refetchInterval: liveInterval(running),
+  })
+}
+
+/** Storico run completo: si carica solo quando il Monitor lo apre. */
+export function useRuns(opts?: { enabled?: boolean }) {
+  const running = useIsRunning()
+  return useQuery({
+    queryKey: ['runs'],
+    queryFn: api.runs,
+    enabled: opts?.enabled ?? true,
     refetchInterval: liveInterval(running),
   })
 }
@@ -86,6 +115,7 @@ export function useRunWatcher(): boolean {
       queryClient.invalidateQueries({ queryKey: ['topics'] })
       queryClient.invalidateQueries({ queryKey: ['trends'] })
       queryClient.invalidateQueries({ queryKey: ['idea'] })
+      queryClient.invalidateQueries({ queryKey: ['runs'] })
     }
     prev.current = running
   }, [running, queryClient])

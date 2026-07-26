@@ -21,6 +21,7 @@ from app.clustering import (
 from app.config import Settings, get_settings
 from app.db import get_session, init_db, upsert_item
 from app.embeddings import OllamaEmbedder, centroid, embed_item
+from app.healing import heal_ideas
 from app.lifecycle import archive_stale_ideas
 from app.llm import IdeaInsight, OllamaClient, generate_insight, heuristic_insight
 from app.models import (
@@ -751,6 +752,52 @@ def execute_rebuild_ideas(
             cohesion_floor=cohesion_floor,
             on_progress=on_progress,
         )
+
+
+def execute_heal(
+    embed_missing: bool = True,
+    on_progress: Callable[[str], None] | None = None,
+) -> dict:
+    """Wiring di default per il comando CLI ``heal``.
+
+    Stesso lock dei run: sposta item tra idee e cancella idee, quindi non può
+    convivere con un run. Se qualcosa è stato riparato ricalcola topic e
+    punteggi, altrimenti non tocca niente — così un ``heal`` a vuoto costa
+    qualche secondo e zero chiamate al modello.
+    """
+    init_db()
+    config = get_config()
+    settings = get_settings()
+    with run_lock(), get_session() as session:
+        summary = heal_ideas(
+            session,
+            config,
+            settings,
+            on_progress=on_progress,
+            embed_missing=embed_missing,
+        )
+        if summary["n_merged"] or summary["n_embedded"]:
+            if on_progress is not None:
+                on_progress("raggruppo in topic")
+            assign_ideas_to_topics(
+                session,
+                config.clustering.topic_threshold,
+                namer=_topic_namer(config, OllamaClient(settings)),
+                label_min_ideas=config.clustering.topic_label_min_ideas,
+                on_progress=on_progress,
+            )
+            last_run = session.exec(
+                select(Run).where(Run.status == RunStatus.DONE).order_by(Run.id.desc())
+            ).first()
+            if last_run is not None:
+                _, insights = _snapshot_ideas(session)
+                summary["n_scored"] = _rescore_ideas(
+                    session, config, last_run, insights, on_progress=on_progress
+                )
+                _record_topic_stats(session, last_run)
+        summary["n_topics"] = len(session.exec(select(Topic)).all())
+        summary["n_ideas"] = len(session.exec(select(Idea)).all())
+        return summary
 
 
 def execute_preview_rebuild(

@@ -17,7 +17,6 @@ Due scelte deliberate:
 """
 
 import logging
-import re
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -26,18 +25,13 @@ import httpx
 from app.appconfig import AppConfig, SourceConfig
 from app.config import Settings
 from app.models import Item
-from app.sources.base import register_source
+from app.sources.base import clean_html_text, register_source
 
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://hn.algolia.com/api/v1/search_by_date"
 SOURCE_NAME = "hn"  # condiviso con le top-story: i doppioni si fondono per id
 REQUEST_DELAY = 0.3  # una richiesta per keyword: gentilezza tra l'una e l'altra
-_TAG_RE = re.compile(r"<[^>]+>")
-
-
-def _strip_html(text: str) -> str:
-    return re.sub(r"\s+", " ", _TAG_RE.sub(" ", text)).strip()
 
 
 def algolia_params(
@@ -131,10 +125,10 @@ class HnAlgoliaSource:
         return Item(
             source=SOURCE_NAME,
             external_id=str(object_id),
-            title=title[:300],
+            title=clean_html_text(title)[:300],
             url=hit.get("url")
             or f"https://news.ycombinator.com/item?id={object_id}",
-            text=_strip_html(story_text)[:2000] if story_text else None,
+            text=clean_html_text(story_text)[:2000] if story_text else None,
             author=hit.get("author"),
             engagement_json={
                 "score": hit.get("points") or 0,

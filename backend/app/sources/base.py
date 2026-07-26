@@ -1,5 +1,7 @@
 """Astrazione comune dei collector, registry dei tipi e factory."""
 
+import re
+from html import unescape
 from typing import Protocol
 
 import httpx
@@ -22,6 +24,19 @@ class Source(Protocol):
 # Sta qui e non in un singolo collector perché è la buona educazione di tutti.
 # Metti pure il tuo repo/contatto reale al posto del link.
 USER_AGENT = "idea-radar/0.1 (+https://github.com/idea-radar)"
+
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def clean_html_text(text: str) -> str:
+    """Testo leggibile da un frammento HTML: via i tag, via le entità.
+
+    Serve a più fonti: i feed RSS servono HTML nel corpo, e l'API di Hacker News
+    restituisce il testo dei post con le entità già codificate (``&#x2F;`` per
+    una barra, ``<p>`` per un paragrafo). Senza questo passaggio quella roba
+    arriva fino al riassunto dell'idea, e si vede — nel digest e nel drawer.
+    """
+    return re.sub(r"\s+", " ", _TAG_RE.sub(" ", unescape(text))).strip()
 
 
 # ``type`` di config.yaml -> classe collector. Non è hardcoded qui: ogni

@@ -70,6 +70,9 @@ def test_the_client_it_builds_itself_is_usable_against_arxiv(monkeypatch) -> Non
     try:
         assert client.follow_redirects is True
         assert USER_AGENT in client.headers["User-Agent"]
+        # arXiv è lenta per natura: col timeout di 20s il run #50 è morto in
+        # "read operation timed out". Meglio aspettare che perdere il giro.
+        assert client.timeout.read >= 60
     finally:
         client.close()
 

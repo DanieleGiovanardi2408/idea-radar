@@ -33,6 +33,13 @@ SOURCE_NAME = "arxiv"
 PROFILE = SourceProfile(credibility_base=0.45)
 register_profile(SOURCE_NAME, PROFILE)
 
+# arXiv è lenta: una query ordinata per submittedDate su più categorie prende
+# regolarmente più di 20 secondi, e a 20 il run #50 è morto in "read operation
+# timed out" (visibile nel Monitor solo dopo aver sistemato il salvataggio degli
+# errori per fonte). Per una fonte interrogata ogni 4 ore aspettare vale più che
+# perdere il giro: gli altri collector restano sui loro 15-20s, che a loro bastano.
+TIMEOUT = 60.0
+
 _ATOM = "{http://www.w3.org/2005/Atom}"
 # Gli abstract possono essere lunghissimi: stesso tetto del collector RSS.
 MAX_TEXT = 2000
@@ -68,7 +75,7 @@ class ArxivSource:
             # siamo. La netiquette di arXiv chiede uno User-Agent riconoscibile,
             # e senza ``follow_redirects`` un 301 arriverebbe intatto al parser.
             self._client = httpx.Client(
-                timeout=20.0,
+                timeout=TIMEOUT,
                 follow_redirects=True,
                 headers={"User-Agent": USER_AGENT},
             )

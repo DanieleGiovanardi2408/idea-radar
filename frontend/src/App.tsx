@@ -64,7 +64,9 @@ function App() {
   const health = useHealth()
   const { data: stats } = useStats()
   const { data: ideas } = useIdeas()
-  const { data: topics } = useTopics()
+  // Stessi parametri di default della vista Topic, così il contatore nella nav
+  // dice lo stesso numero della lista (e riusa la cache invece di rifetchare).
+  const { data: topics } = useTopics({ minIdeas: 2, orderBy: 'n_ideas' })
   // Montato una volta sola: al passaggio running → done invalida le risorse.
   const running = useRunWatcher()
 
@@ -232,6 +234,11 @@ function App() {
               <Route path="/" element={<Navigate to="/radar" replace />} />
               <Route path="/radar" element={<RadarView onSelect={openIdea} />} />
               <Route path="/topics" element={<TopicsView onSelect={openIdea} />} />
+              {/* deep link dal Trend: apre quel tema già espanso */}
+              <Route
+                path="/topics/:topicId"
+                element={<TopicsView onSelect={openIdea} />}
+              />
               <Route path="/trends" element={<TrendsView />} />
               <Route path="/monitor" element={<MonitorView />} />
               <Route path="*" element={<Navigate to="/radar" replace />} />

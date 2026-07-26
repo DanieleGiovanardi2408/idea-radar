@@ -87,9 +87,9 @@ Thresholds are calibrated against a ground truth of items that appeared on two s
 The interface is a single-page "radar room": a dark, glass-panelled console with a phosphor-green accent, live sweep animation, and [Space Grotesk](https://fonts.google.com/specimen/Space+Grotesk) throughout. Data and models stay entirely local.
 
 - **Radar** — every idea as a blip on a polar scope. Distance from the centre is `1 − composite`, so the best opportunities sit *on your heading*, near the middle; a rotating sweep makes each blip flash as it passes. Below the scope, the same ideas as a ranked, searchable list. Each idea can be **pinned** (kept on top and shielded from auto-archiving), **dismissed** (hidden until you ask for it back), and **annotated** with a private note — actions that persist across runs and are reachable by deep link (`?idea=<id>`).
-- **Topic** — ideas grouped by theme, each topic expandable into its members.
-- **Trend** — what's moving between runs, with a hover-tooltip area chart per topic and the biggest mover highlighted. (Needs at least two runs; with one, deltas are zero by construction.)
-- **Monitor** — live pipeline progress: ingestion funnel, per-source counts, active sources, and recent-run history. While a run is in progress the whole view polls every 2s.
+- **Topic** — ideas grouped by theme, each topic expandable into its members (fetched per topic, so the accordion isn't limited by the paginated idea list). Sortable by score, size or recency, and by default it hides themes holding a single idea — with calibrated thresholds those are the majority, they're real, but scrolling hundreds of them is noise.
+- **Trend** — what's moving between runs, with a hover-tooltip area chart per topic and the biggest mover highlighted; every entry links through to its theme. (Needs at least two runs; with one, deltas are zero by construction.)
+- **Monitor** — live pipeline progress: ingestion funnel, per-source counts, active sources, and a full run history where each run expands to its per-source outcome — the place to notice a source that quietly stopped bringing anything. While a run is in progress the whole view polls every 2s.
 
 <div align="center">
 
@@ -175,6 +175,25 @@ uv run idea-radar stats       # ingestion funnel
 uv run pytest                 # tests
 ```
 
+`digest` turns the radar from something you have to remember to open into something that reports to you:
+
+```bash
+uv run idea-radar digest              # writes backend/data/digests/<timestamp>.md
+uv run idea-radar digest --stdout     # print instead of writing
+uv run idea-radar digest --since 2026-07-20
+```
+
+"New" means *newly above threshold*, not newly seen: an idea can sit in the archive for weeks and cross the line only now, and that is precisely the news. The window starts at the last digest, and the register is the filenames themselves — delete a digest and it regenerates. Add it to a `cron`/launchd entry after the run and you have a briefing.
+
+`heal` repairs what the incremental pipeline can't revisit on its own — items that arrived while Ollama was down (no vector, so no way to aggregate them, ever) and single-item ideas that would have a home today, since single-link depends on arrival order:
+
+```bash
+uv run idea-radar heal                     # re-embed what's missing, re-check singletons
+uv run idea-radar heal --skip-embeddings   # no Ollama call: only re-check singletons
+```
+
+It never dissolves an idea with more than one item, and between two singletons the older one survives — so a repaired item can't take out the idea that was waiting for it, along with its label and its paid-for summary. If Ollama isn't ready the command says so and falls back to the singleton pass instead of failing.
+
 After changing a clustering threshold, apply it to the archive you already have instead of waiting for it to re-form run by run:
 
 ```bash
@@ -233,6 +252,8 @@ backend/
     clustering.py        # items → ideas, ideas → topics
     scoring.py           # metrics and composite
     llm.py               # insights via Ollama
+    digest.py            # `digest`: markdown report of what crossed the threshold
+    healing.py           # `heal`: re-embed degraded items, re-merge singletons
     scheduling.py        # unattended-run policy: staleness gate + Ollama preflight
     schedule_launchd.py  # launchd agent: install / uninstall / status
     runlock.py           # cross-process run lock (CLI, API, scheduler)
@@ -270,10 +291,12 @@ Recently shipped: semantic deduplication end-to-end · per-idea insight cache ·
 
 Also shipped: **drift-proof clustering** — merges decided member-by-member (single link + cohesion) instead of on the centroid, with thresholds calibrated against a ground truth of cross-source duplicates · **`rebuild-ideas`** — re-aggregates the stored archive under new thresholds, preserving items, engagement history, user actions and paid-for insights · **honest trends** — a topic's `avg_composite` is measured on each idea's latest known score, so a run with nothing new draws a flat line instead of a fake crash to zero · **arXiv actually collecting** — it was requesting `http`, getting a redirect the Atom parser then choked on, and failing invisibly because a source that fails last never reached the run record · **a centroid index reused for a whole run** instead of re-reading every idea for every item: 66s → 4s on the clustering step of a 130-item run, measured on a 1300-idea archive.
 
+And: **`heal`** for the sediment the incremental pipeline can't revisit · **`digest`** as a markdown briefing · **run history with per-source outcomes** in the Monitor · **Topic view that scales** to hundreds of themes · **Trend → Topic drill-down** · HTML entities stripped at collection (Hacker News serves escaped markup, and it was reaching the summaries).
+
 Next:
 
 - [ ] Configurable, smaller insight model for faster runs on modest hardware.
-- [ ] Clustering at scale — candidate lookup is an in-memory scan of unit centroids, so it is still linear per item and quadratic per run; at ~1300 ideas that's a few seconds, at ten times that it won't be. Next: `sqlite-vec` or numpy as a real ANN index, batched embeddings, a `heal` command to re-merge singletons left by degraded runs (there are already 9 in this archive, from a run where Ollama was down).
+- [ ] Clustering at scale — candidate lookup is an in-memory scan of unit centroids, so it is still linear per item and quadratic per run; at ~1300 ideas that's a few seconds, at ten times that it won't be. Next: `sqlite-vec` or numpy as a real ANN index, and batched embeddings (Ollama's `/api/embed` takes lists).
 - [ ] Cross-run digest and a full run history in the Monitor view.
 
 ---
