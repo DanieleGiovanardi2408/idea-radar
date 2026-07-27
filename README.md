@@ -113,7 +113,7 @@ Topics the model names identically are merged, keeping the older one and its his
 
 The interface is a single-page "radar room": a dark, glass-panelled console with a phosphor-green accent, live sweep animation, and [Space Grotesk](https://fonts.google.com/specimen/Space+Grotesk) throughout. Data and models stay entirely local.
 
-- **Radar** — a control room. The polar scope in the middle, every idea a blip, filterable by **theme**; on the left **who's talking right now** about your themes (YouTube search per profile — one player, top of the panel, autoplaying *muted*; click it to hear it, click any thumbnail to promote it with sound); on the right the **signal rhythm**, a heatmap of when the things the radar intercepts were *born* — days as columns, the 24 hours as rows, because in a tall narrow panel that's the only orientation with cells big enough to read. Below the scope, the same ideas as a ranked, searchable list. Distance from the centre is `1 − composite`, so the best opportunities sit *on your heading*, near the middle; a rotating sweep makes each blip flash as it passes. Below the scope, the same ideas as a ranked, searchable list. Each idea can be **pinned** (kept on top and shielded from auto-archiving), **dismissed** (hidden until you ask for it back), and **annotated** with a private note — actions that persist across runs and are reachable by deep link (`?idea=<id>`).
+- **Radar** — a control room. The polar scope in the middle, every idea a blip, filterable by **theme**; on the left **who's talking right now** about your themes (YouTube search per profile — one player, top of the panel, autoplaying *muted*; click it to hear it, click any thumbnail to promote it with sound); on the right the **signal rhythm**, a heatmap of when the things the radar intercepts were *born* — days as columns, the 24 hours as rows, because in a tall narrow panel that's the only orientation with cells big enough to read. Distance from the centre is `1 − composite`, so the best opportunities sit *on your heading*, near the middle; a rotating sweep makes each blip flash as it passes. Below the scope, the same ideas as a ranked, searchable list. Each idea can be **pinned** (kept on top and shielded from auto-archiving), **dismissed** (hidden until you ask for it back), and **annotated** with a private note — actions that persist across runs and are reachable by deep link (`?idea=<id>`).
 - **Topic** — two levels: ideas grouped under the **macro-theme** they belong to (the profiles you declared) and, inside it, the micro-themes the embeddings found. Each topic expands into its members (fetched per topic, so the accordion isn't limited by the paginated idea list). Sortable by score, size or recency, and by default it hides themes holding a single idea — with calibrated thresholds those are the majority, they're real, but scrolling hundreds of them is noise.
 - **Trend** — what's moving between runs, with a hover-tooltip area chart per topic and the biggest mover highlighted; every entry links through to its theme. (Needs at least two runs; with one, deltas are zero by construction.)
 - **Monitor** — live pipeline progress: ingestion funnel, per-source counts, active sources, and a full run history where each run expands to its per-source outcome — the place to notice a source that quietly stopped bringing anything. While a run is in progress the whole view polls every 2s.
@@ -125,6 +125,12 @@ The interface is a single-page "radar room": a dark, glass-panelled console with
 | <img src="docs/topics.png" alt="Topic view" width="420"/> | <img src="docs/trends.png" alt="Trend view" width="420"/> |
 | **Monitor** | **Idea detail** |
 | <img src="docs/monitor.png" alt="Monitor view" width="420"/> | <img src="docs/detail.png" alt="Idea detail drawer" width="420"/> |
+
+The two side panels of the control room, up close — the video shots show the player stopped on purpose, so the image doesn't depend on what YouTube decides to render:
+
+| Who's talking | Signal rhythm |
+|:---:|:---:|
+| <img src="docs/panel-videos.png" alt="Trending videos panel" width="300"/> | <img src="docs/panel-rhythm.png" alt="Signal rhythm heatmap" width="300"/> |
 
 </div>
 

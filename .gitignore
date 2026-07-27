@@ -1,0 +1,12 @@
+# Cartelle di lavoro, non codice: appunti, messaggi di commit in preparazione,
+# ritagli. Vivono qui perché è comodo averle accanto al progetto, ma non
+# appartengono alla storia del repo.
+_to_delete/
+
+# Lo script degli screenshot ha le sue dipendenze (playwright): si reinstallano
+# con `npm install` in quella cartella. Committarle significa mettere in archivio
+# 18MB di libreria per un helper da 100 righe.
+_refactor_assets/node_modules/
+
+# macOS
+.DS_Store
