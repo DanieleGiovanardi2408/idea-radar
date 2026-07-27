@@ -19,11 +19,14 @@ from app.queries import (
     ideas_per_profile,
     latest_score_for,
     monitor_stats,
+    signal_rhythm,
     top_ideas,
     topic_trends,
     topics_overview,
 )
+from app.config import get_settings
 from app.runlock import RunLockBusy, run_lock_busy
+from app.videos import trending_videos
 
 logger = logging.getLogger(__name__)
 
@@ -360,6 +363,83 @@ def list_topics(
         TopicOut(**t)
         for t in topics_overview(session, min_ideas=min_ideas, order_by=order_by)
     ]
+
+
+class RhythmOut(BaseModel):
+    days: int
+    n_items: int
+    n_without_date: int
+    # 7 righe (lunedì=0) x 24 colonne: quanti segnali sono NATI in quell'ora.
+    grid: list[list[int]]
+    peak: int
+    by_source: dict[str, int]
+
+
+@app.get("/rhythm", response_model=RhythmOut)
+def get_rhythm(
+    session: Session = Depends(get_db),
+    days: int = Query(default=28, ge=1, le=365),
+) -> RhythmOut:
+    """Quando nascono i segnali che il radar intercetta.
+
+    Su `created_at`, non su `fetched_at`: quest'ultimo disegnerebbe il ritmo del
+    nostro scheduler invece di quello della rete.
+    """
+    return RhythmOut(**signal_rhythm(session, days=days))
+
+
+class VideoOut(BaseModel):
+    video_id: str
+    title: str
+    channel: str
+    published_at: str
+    thumbnail: str
+    live: bool
+    profile: str | None = None
+    url: str
+    embed_url: str
+
+
+class VideosOut(BaseModel):
+    # False = manca YOUTUBE_API_KEY: la UI lo dice, invece di mostrare il vuoto.
+    configured: bool
+    videos: list[VideoOut] = []
+    detail: str | None = None
+    cached: bool = False
+
+
+@app.get("/videos", response_model=VideosOut)
+def list_videos(
+    limit: int = Query(default=8, ge=1, le=25),
+    live: bool = False,
+) -> VideosOut:
+    """Video in tendenza sui temi del radar. Contesto, non segnali.
+
+    Non entrano nella pipeline e non diventano idee: servono a vedere chi sta
+    parlando adesso di ciò che il radar sta guardando.
+    """
+    result = trending_videos(
+        get_config(), get_settings(), limit=limit, live_only=live
+    )
+    return VideosOut(
+        configured=result["configured"],
+        detail=result.get("detail"),
+        cached=result.get("cached", False),
+        videos=[
+            VideoOut(
+                video_id=v.video_id,
+                title=v.title,
+                channel=v.channel,
+                published_at=v.published_at,
+                thumbnail=v.thumbnail,
+                live=v.live,
+                profile=v.profile,
+                url=v.url,
+                embed_url=v.embed_url,
+            )
+            for v in result["videos"]
+        ],
+    )
 
 
 @app.get("/trends", response_model=list[TrendOut])

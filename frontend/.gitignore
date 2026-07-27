@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Vitest compila vitest.config.ts in un file temporaneo accanto ad esso e a
+# volte non riesce a cancellarlo: sono scarti di un test, non codice.
+vitest.config.ts.timestamp-*
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

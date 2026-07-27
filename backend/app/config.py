@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     ollama_model: str = "qwen2.5:7b"
     # Modello per gli embedding (clustering e topic). `ollama pull nomic-embed-text`.
     embedding_model: str = "nomic-embed-text"
+    # Chiave GRATUITA per la YouTube Data API v3 (console.cloud.google.com):
+    # serve solo al pannello video del Radar, che senza si spegne da sé con un
+    # messaggio invece di sembrare rotto. Nessuna parte della pipeline la usa.
+    youtube_api_key: str = ""
     # Se True la pipeline fallisce quando Ollama è irraggiungibile;
     # se False (default) ripiega su un insight euristico e prosegue.
     llm_required: bool = False

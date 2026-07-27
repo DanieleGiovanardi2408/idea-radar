@@ -3,10 +3,12 @@ import type {
   IdeaOut,
   PatchIdeaBody,
   ProfileOut,
+  RhythmOut,
   RunOut,
   StatsOut,
   TopicOut,
   TrendOut,
+  VideosOut,
 } from './types'
 
 async function get<T>(path: string): Promise<T> {
@@ -18,6 +20,14 @@ async function get<T>(path: string): Promise<T> {
 export const api = {
   health: () => get<{ status: string }>('/health'),
   profiles: () => get<ProfileOut[]>('/profiles'),
+  rhythm: (days = 28) => get<RhythmOut>(`/rhythm?days=${days}`),
+  videos: (params?: { limit?: number; live?: boolean }) => {
+    const q = new URLSearchParams()
+    if (params?.limit !== undefined) q.set('limit', String(params.limit))
+    if (params?.live) q.set('live', 'true')
+    const qs = q.toString()
+    return get<VideosOut>(`/videos${qs ? `?${qs}` : ''}`)
+  },
   ideas: (params?: {
     status?: string
     topic_id?: number

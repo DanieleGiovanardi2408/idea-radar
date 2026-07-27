@@ -125,3 +125,34 @@ export interface ProfileOut {
   keywords: string[]
   n_ideas: number
 }
+
+/** Ritmo dei segnali: quando NASCONO (created_at), non quando li raccogliamo. */
+export interface RhythmOut {
+  days: number
+  n_items: number
+  n_without_date: number
+  /** 7 righe (lunedì = 0) x 24 colonne. */
+  grid: number[][]
+  peak: number
+  by_source: Record<string, number>
+}
+
+export interface VideoOut {
+  video_id: string
+  title: string
+  channel: string
+  published_at: string
+  thumbnail: string
+  live: boolean
+  profile: string | null
+  url: string
+  embed_url: string
+}
+
+export interface VideosOut {
+  /** False = manca YOUTUBE_API_KEY: il pannello lo dice invece di restare vuoto. */
+  configured: boolean
+  videos: VideoOut[]
+  detail: string | null
+  cached: boolean
+}

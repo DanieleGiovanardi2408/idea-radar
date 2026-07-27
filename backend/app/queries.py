@@ -6,11 +6,22 @@ con dieci run, non con mesi di run schedulati.
 """
 
 from collections import Counter, defaultdict
+from datetime import timedelta
 
 from sqlalchemy import func
 from sqlmodel import Session, select
 
-from app.models import Idea, IdeaStatus, Item, Run, RunStatus, Score, Topic, TopicStat
+from app.models import (
+    Idea,
+    IdeaStatus,
+    Item,
+    Run,
+    RunStatus,
+    Score,
+    Topic,
+    TopicStat,
+    utcnow,
+)
 
 
 def _latest_score_run_subq():
@@ -187,6 +198,46 @@ def ideas_per_profile(session: Session) -> dict[str, int]:
         .group_by(Score.profile)
     )
     return {name: count for name, count in session.exec(stmt).all()}
+
+
+def signal_rhythm(session: Session, days: int = 28) -> dict:
+    """Quando nascono i segnali: matrice giorno-della-settimana x ora.
+
+    Si usa ``created_at`` — la nascita del segnale nel mondo — e non
+    ``fetched_at``, che dice solo quando è passato il nostro scheduler e
+    disegnerebbe il ritmo dei nostri run invece di quello della rete.
+
+    Gli item senza data restano fuori: meglio una cella vuota che un'ora
+    inventata. Le ore sono UTC, come tutto il resto del progetto.
+    """
+    since = utcnow() - timedelta(days=days)
+    rows = session.exec(
+        select(Item.created_at, Item.source).where(
+            Item.created_at.is_not(None),  # type: ignore[union-attr]
+            Item.created_at >= since,
+        )
+    ).all()
+
+    # 7 giorni x 24 ore, lunedì = 0 (convenzione di weekday()).
+    grid = [[0] * 24 for _ in range(7)]
+    by_source: dict[str, int] = defaultdict(int)
+    for created, source in rows:
+        grid[created.weekday()][created.hour] += 1
+        by_source[source] += 1
+
+    counts = [n for row in grid for n in row]
+    return {
+        "days": days,
+        "n_items": len(rows),
+        "n_without_date": session.exec(
+            select(func.count()).select_from(Item).where(
+                Item.created_at.is_(None)  # type: ignore[union-attr]
+            )
+        ).one(),
+        "grid": grid,
+        "peak": max(counts) if counts else 0,
+        "by_source": dict(sorted(by_source.items(), key=lambda kv: -kv[1])),
+    }
 
 
 def topic_trends(session: Session, max_runs: int = 12) -> list[dict]:

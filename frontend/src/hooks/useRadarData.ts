@@ -109,6 +109,28 @@ export function useRuns(opts?: { enabled?: boolean }) {
   })
 }
 
+/** Ritmo dei segnali. Cambia solo quando arrivano item nuovi: niente polling. */
+export function useRhythm(days = 28) {
+  const running = useIsRunning()
+  return useQuery({
+    queryKey: ['rhythm', days],
+    queryFn: () => api.rhythm(days),
+    refetchInterval: liveInterval(running),
+  })
+}
+
+/** Video in tendenza sui temi. Il backend ha già una cache di 15 minuti:
+ *  qui basta non rifetchare a ogni rimontaggio del pannello. */
+export function useVideos(opts?: { limit?: number; live?: boolean }) {
+  const limit = opts?.limit ?? 6
+  const live = opts?.live ?? false
+  return useQuery({
+    queryKey: ['videos', { limit, live }],
+    queryFn: () => api.videos({ limit, live }),
+    staleTime: 10 * 60 * 1000,
+  })
+}
+
 export function useHealth() {
   return useQuery({ queryKey: ['health'], queryFn: api.health })
 }

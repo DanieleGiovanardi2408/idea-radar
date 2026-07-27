@@ -12,9 +12,11 @@ const BACKEND_ROUTES = [
   '/health',
   '/ideas',
   '/profiles',
+  '/rhythm',
   '/runs',
   '/topics',
   '/trends',
+  '/videos',
   '/stats',
 ]
 

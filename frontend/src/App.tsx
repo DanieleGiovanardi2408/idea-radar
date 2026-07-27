@@ -17,6 +17,8 @@ import {
   useStats,
   useTopics,
 } from './hooks/useRadarData'
+import { SignalRhythm } from './components/SignalRhythm'
+import { TrendingVideos } from './components/TrendingVideos'
 import { MonitorView } from './views/MonitorView'
 import { RadarView } from './views/RadarView'
 import { TopicsView } from './views/TopicsView'
@@ -75,6 +77,7 @@ function App() {
 
   const backend =
     health.isPending ? 'loading' : health.data?.status === 'ok' ? 'ok' : 'error'
+  const onRadar = pathname === '/radar' || pathname === '/'
 
   /* Drawer deep-linkabile: ?idea=<id> vive sopra qualunque vista. L'apertura
      è una nuova entry di history, quindi il back del browser lo chiude. */
@@ -139,7 +142,13 @@ function App() {
       <div className="vignette pointer-events-none fixed inset-0" />
       <div className="scanline pointer-events-none fixed inset-x-0 top-0 h-40" />
 
-      <div className="relative mx-auto max-w-5xl px-4 py-8">
+      {/* Il Radar è una sala controllo a tre colonne e ha bisogno di respiro;
+          le altre viste restano nella colonna leggibile di sempre. */}
+      <div
+        className={`relative mx-auto px-4 py-8 ${
+          onRadar ? 'max-w-[92rem]' : 'max-w-5xl'
+        }`}
+      >
         <header className="view-enter flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-center gap-4">
             <RadarMark />
@@ -230,6 +239,28 @@ function App() {
 
         <main className="mt-6">
           <div key={pathname} className="view-enter">
+            {/* La sala controllo esiste solo sul Radar: le altre viste sono
+                liste, e stringerle in una colonna centrale le peggiora. */}
+            {onRadar ? (
+              /* Le colonne laterali sono larghe perché il loro contenuto lo
+                 richiede: una heatmap di 7×24 celle e un player video a 16:9
+                 sotto i 20rem diventano decorazione illeggibile. */
+              <div className="grid gap-4 xl:grid-cols-[21rem_minmax(0,1fr)_21rem] 2xl:grid-cols-[23rem_minmax(0,1fr)_23rem]">
+                {/* Su schermi stretti i pannelli vanno SOTTO il quadrante:
+                    l'ordine visivo segue l'importanza, non il DOM. */}
+                <aside className="order-2 grid gap-4 xl:order-1 xl:sticky xl:top-6 xl:self-start">
+                  <TrendingVideos />
+                </aside>
+                <div className="order-1 min-w-0 xl:order-2">
+                  <Routes>
+                    <Route path="/radar" element={<RadarView onSelect={openIdea} />} />
+                  </Routes>
+                </div>
+                <aside className="order-3 grid gap-4 xl:sticky xl:top-6 xl:self-start">
+                  <SignalRhythm />
+                </aside>
+              </div>
+            ) : (
             <Routes>
               <Route path="/" element={<Navigate to="/radar" replace />} />
               <Route path="/radar" element={<RadarView onSelect={openIdea} />} />
@@ -243,6 +274,7 @@ function App() {
               <Route path="/monitor" element={<MonitorView />} />
               <Route path="*" element={<Navigate to="/radar" replace />} />
             </Routes>
+            )}
           </div>
         </main>
 

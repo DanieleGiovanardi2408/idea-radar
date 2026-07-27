@@ -160,6 +160,74 @@ def test_trends_endpoint(client: TestClient, session: Session) -> None:
     assert trends[0]["delta_ideas"] == 0  # stesso numero di idee tra i due run
 
 
+def test_rhythm_is_built_on_when_signals_were_born(
+    client: TestClient, session: Session
+) -> None:
+    """Su `created_at`, non su `fetched_at`.
+
+    `fetched_at` disegnerebbe il ritmo del NOSTRO scheduler — una riga verticale
+    ogni quattro ore — invece di quello della rete.
+    """
+    from datetime import timedelta
+
+    from app.models import utcnow
+
+    now = utcnow()
+    # Un lunedì alle 09, e un item raccolto ora ma nato mesi fa.
+    monday_9 = now - timedelta(days=now.weekday(), hours=now.hour - 9)
+    session.add(
+        Item(
+            source="hn",
+            external_id="fresco",
+            title="nato lunedì",
+            created_at=monday_9,
+        )
+    )
+    session.add(
+        Item(source="hn", external_id="senza", title="senza data", created_at=None)
+    )
+    session.commit()
+
+    data = client.get("/rhythm?days=28").json()
+
+    assert data["n_items"] == 1  # quello senza data resta fuori
+    assert data["n_without_date"] == 1
+    assert len(data["grid"]) == 7 and len(data["grid"][0]) == 24
+    assert data["grid"][monday_9.weekday()][9] == 1
+    assert data["peak"] == 1
+    assert data["by_source"] == {"hn": 1}
+
+
+def test_rhythm_ignores_signals_older_than_the_window(
+    client: TestClient, session: Session
+) -> None:
+    from datetime import timedelta
+
+    from app.models import utcnow
+
+    session.add(
+        Item(
+            source="hn",
+            external_id="vecchio",
+            title="di due mesi fa",
+            created_at=utcnow() - timedelta(days=60),
+        )
+    )
+    session.commit()
+
+    assert client.get("/rhythm?days=28").json()["n_items"] == 0
+    assert client.get("/rhythm?days=90").json()["n_items"] == 1
+
+
+def test_videos_endpoint_says_when_the_key_is_missing(client: TestClient) -> None:
+    """Il pannello si spegne spiegandosi, non con un 500."""
+    data = client.get("/videos").json()
+
+    assert data["configured"] is False
+    assert data["videos"] == []
+    assert "YOUTUBE_API_KEY" in data["detail"]
+
+
 def test_stats_endpoint(client: TestClient, session: Session) -> None:
     _seed(session)
     stats = client.get("/stats").json()
