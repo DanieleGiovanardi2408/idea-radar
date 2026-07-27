@@ -20,7 +20,7 @@
 
 ---
 
-Idea Radar collects signals from **Hacker News, GitHub, arXiv, Product Hunt, and tech RSS feeds**, groups them by meaning, and ranks them by **opportunity**. The guiding idea: a project with 100k stars accumulated over six years is a *closed market*, not an opening. A repo with 2k stars in three months might be one. The radar is built to tell those two apart.
+Idea Radar collects signals from **Hacker News, GitHub, Hugging Face, Stack Exchange, npm, arXiv, Product Hunt, and 20 tech RSS feeds**, groups them by meaning, and ranks them by **opportunity**. The guiding idea: a project with 100k stars accumulated over six years is a *closed market*, not an opening. A repo with 2k stars in three months might be one. The radar is built to tell those two apart.
 
 Everything runs on **free APIs and a local LLM** (via [Ollama](https://ollama.com/)) — no paid services, no cloud model calls, nothing leaves your machine.
 
@@ -32,10 +32,12 @@ Everything runs on **free APIs and a local LLM** (via [Ollama](https://ollama.co
 flowchart LR
     HN[Hacker News]:::src --> Items[(Items)]
     HNA[HN Algolia backfill]:::src --> Items
-    GH[GitHub]:::src --> Items
+    GH[GitHub · age bands]:::src --> Items
+    HF[Hugging Face]:::src --> Items
+    SE[Stack Exchange · demand]:::src --> Items
+    NPM[npm registry]:::src --> Items
     ARX[arXiv]:::src --> Items
-    PH[Product Hunt]:::src --> Items
-    RSS[RSS feeds]:::src --> Items
+    RSS[20 RSS feeds]:::src --> Items
     Items --> Emb[Embeddings<br/>nomic-embed-text]
     Emb --> Ideas[Ideas<br/>semantic dedup]
     Ideas --> Topics[Topics<br/>persist across runs]
@@ -60,7 +62,7 @@ gate(x)   = floor + (1 − floor) × x
 
 | Metric | What it measures |
 |--------|------------------|
-| **Heat** | *Speed* of growth, not absolute popularity — **measured**, where history exists, between consecutive engagement observations (stars/day, points/day) in a sliding window; new items fall back to an engagement/age heuristic until a second observation lands. |
+| **Heat** | *Speed* of growth, not absolute popularity — **measured**, where history exists, between consecutive engagement observations (stars/day, points/day) in a sliding window; new items fall back to an engagement/age heuristic until a second observation lands. This only works on sources whose engagement is a *live counter*, which is why five of the eight are: HN, HN-Algolia, GitHub, Hugging Face, Stack Exchange. RSS, arXiv and npm have no growing counter, so for them heat stays heuristic — the per-source `SourceProfile` says which is which, so the scorer never measures an invented delta. |
 | **Credibility** | Trustworthiness of the source and whether there's an identifiable author. |
 | **Feasibility** | How buildable it is for a team of 1–3 people, estimated by the LLM against an explicit rubric. |
 | **Fit** | Adherence to your keywords. A **gate**: off-topic is pulled down however popular it is. |
@@ -127,7 +129,7 @@ The interface is a single-page "radar room": a dark, glass-panelled console with
 | Backend | Python 3.11+, [uv](https://docs.astral.sh/uv/), FastAPI + Uvicorn, SQLModel (SQLite), Typer CLI, pydantic-settings, pytest |
 | Frontend | Vite + React 19 + TypeScript, Tailwind CSS v4, React Router, TanStack Query, Space Grotesk |
 | Intelligence | Ollama — `qwen2.5:7b` (insights), `nomic-embed-text` (embeddings) |
-| Sources | Hacker News (Firebase API + Algolia backfill), GitHub (Search API, one query per keyword, **recently created** repos only), arXiv (Atom API, 4 categories), Product Hunt (GraphQL v2), 20 RSS/Atom feeds |
+| Sources | Hacker News (Firebase + Algolia backfill), GitHub (Search API, age-banded), Hugging Face Hub, Stack Exchange, npm registry, arXiv (4 categories), Product Hunt (GraphQL v2), 20 RSS/Atom feeds — 70 HTTP requests per run, all free, no key needed beyond a GitHub token |
 
 ---
 
@@ -252,7 +254,9 @@ Drop the date filter and "sorted by stars" means *the most famous repos on earth
 
 A single band isn't enough either: the same query returns the same repos every run, so after the first sweep the source stops discovering anything. `created_windows: [90, 270, 540]` splits the search into 0-90, 90-270 and 270-540 days, and the quota is divided **between bands** rather than awarded by global star count — stars accumulate with time, so ranking everything together would always let the oldest band win, which is the very bias being removed. The youngest band renews itself as new projects are born; that's what keeps the source alive run after run.
 
-Each source is one entry under `sources` with a `type` (`hn`, `hn_algolia`, `github`, `arxiv`, `producthunt`, `rss`) and its own options (`feeds` for RSS, `categories` for arXiv, `lookback_hours`/`min_points` for the Algolia backfill). The `producthunt` source ships **disabled**: enable it after setting `PRODUCTHUNT_TOKEN`. All the per-source scoring parameters live in each collector's `SourceProfile` (`backend/app/sources/<source>.py`), not in the scorer.
+One source that is worth its own line: **Stack Exchange measures demand, not supply.** Every other collector looks at what is being *built* — repos, models, papers, launches. This one looks at what is *missing*: a question that collects votes and has no accepted answer is a problem people have and nobody has solved well. It only keeps unanswered questions (a solved one is documentation, not an opening) and sorts by votes rather than activity, because votes mean "I have this too" while activity only means someone commented. Its profile deliberately turns off `maturity_in_saturation`: on GitHub, popular *and* old means a closed market, but an old question that still collects votes is a problem that has *resisted*.
+
+Each source is one entry under `sources` with a `type` (`hn`, `hn_algolia`, `github`, `huggingface`, `stackexchange`, `npm`, `arxiv`, `producthunt`, `rss`) and its own options (`feeds` for RSS, `categories` for arXiv, `created_windows`/`min_stars` for GitHub, `hf_kinds` for Hugging Face, `tags`/`site` for Stack Exchange, `max_age_days` for Stack Exchange and npm, `lookback_hours`/`min_points` for the Algolia backfill). The `producthunt` source ships **disabled**: enable it after setting `PRODUCTHUNT_TOKEN`. All the per-source scoring parameters live in each collector's `SourceProfile` (`backend/app/sources/<source>.py`), not in the scorer.
 
 ---
 
@@ -264,7 +268,8 @@ backend/
     api.py               # FastAPI endpoints (incl. PATCH /ideas/{id} for user actions)
     cli.py               # Typer CLI (entry point: `uv run idea-radar`)
     pipeline.py          # run orchestration
-    sources/             # collectors: hackernews, hn-algolia, github, arxiv, producthunt, rss
+    sources/             # collectors: hackernews, hn-algolia, github, huggingface,
+                         #   stackexchange, npm, arxiv, producthunt, rss
       base.py            #   self-registering type registry (register_source / load_collectors)
       profiles.py        #   per-source scoring profile (velocity/saturation caps, credibility…)
     embeddings.py        # local embeddings + similarity
@@ -310,7 +315,7 @@ Recently shipped: semantic deduplication end-to-end · per-idea insight cache ·
 
 Also shipped: **drift-proof clustering** — merges decided member-by-member (single link + cohesion) instead of on the centroid, with thresholds calibrated against a ground truth of cross-source duplicates · **`rebuild-ideas`** — re-aggregates the stored archive under new thresholds, preserving items, engagement history, user actions and paid-for insights · **honest trends** — a topic's `avg_composite` is measured on each idea's latest known score, so a run with nothing new draws a flat line instead of a fake crash to zero · **arXiv actually collecting** — it was requesting `http`, getting a redirect the Atom parser then choked on, and failing invisibly because a source that fails last never reached the run record · **a centroid index reused for a whole run** instead of re-reading every idea for every item: 66s → 4s on the clustering step of a 130-item run, measured on a 1300-idea archive.
 
-And: **a GitHub collector that actually looks for rising repos** — plus 20 feeds and 4 arXiv categories, roughly doubling the intake · **opportunity as a gate, not an addend** — the scoring change that finally makes the opening claim of this README true · **`heal`** for the sediment the incremental pipeline can't revisit · **`digest`** as a markdown briefing · **run history with per-source outcomes** in the Monitor · **Topic view that scales** to hundreds of themes · **Trend → Topic drill-down** · HTML entities stripped at collection (Hacker News serves escaped markup, and it was reaching the summaries).
+And: **three new collectors** — Hugging Face (live counters, so measured heat), Stack Exchange (the demand axis, which was missing entirely) and npm (new packages before they reach HN) · **a GitHub collector that actually looks for rising repos** — plus 20 feeds and 4 arXiv categories, roughly doubling the intake · **opportunity as a gate, not an addend** — the scoring change that finally makes the opening claim of this README true · **`heal`** for the sediment the incremental pipeline can't revisit · **`digest`** as a markdown briefing · **run history with per-source outcomes** in the Monitor · **Topic view that scales** to hundreds of themes · **Trend → Topic drill-down** · HTML entities stripped at collection (Hacker News serves escaped markup, and it was reaching the summaries).
 
 Next:
 

@@ -36,6 +36,14 @@ class SourceConfig(BaseModel):
     # da sé man mano che nascono progetti.
     created_windows: list[int] = Field(default_factory=lambda: [90, 270, 540])
     min_stars: int = 10
+    # Solo per type: huggingface — cosa cercare sull'hub ("models", "datasets").
+    hf_kinds: list[str] = Field(default_factory=lambda: ["models", "datasets"])
+    # Solo per type: stackexchange — tag da seguire e sito della rete.
+    tags: list[str] = Field(default_factory=list)
+    site: str = "stackoverflow"
+    # Solo per type: stackexchange/npm — età massima (giorni) di ciò che conta
+    # come "nuovo". Oltre, non è più un segnale emergente.
+    max_age_days: int = 60
 
 
 class ClusteringConfig(BaseModel):

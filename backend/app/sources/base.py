@@ -60,8 +60,11 @@ def load_collectors() -> None:
         github,
         hackernews,
         hn_algolia,
+        huggingface,
+        npm,
         producthunt,
         rss,
+        stackexchange,
     )
 
 

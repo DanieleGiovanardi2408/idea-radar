@@ -82,6 +82,41 @@ sources:
       - cs.MA        # sistemi multi-agente
       - cs.IR        # retrieval, RAG
       - cs.SE
+  # Hugging Face Hub: modelli e dataset. API pubblica, senza chiave. Vale per un
+  # motivo preciso: `likes` e `downloads` sono contatori VIVI, quindi qui la heat
+  # si misura a delta come per GitHub e HN invece di essere stimata dall'età —
+  # con arXiv e i feed RSS che non hanno engagement, era l'asse mancante.
+  - name: huggingface
+    type: huggingface
+    limit: 30
+    enabled: true
+    hf_kinds: [models, datasets]   # la quota si divide tra i due
+  # Stack Exchange: l'unica fonte che misura la DOMANDA e non l'offerta. Una
+  # domanda votata e senza risposta accettata è un problema che la gente ha e
+  # nessuno ha risolto. Gratuita e senza chiave fino a 300 richieste al giorno.
+  - name: stackoverflow
+    type: stackexchange
+    limit: 25
+    enabled: true
+    site: stackoverflow
+    max_age_days: 90     # oltre, non è più un segnale emergente
+    # I tag vanno elencati a mano: le keyword sono frasi ("ai agents"), i tag di
+    # SO sono token con trattini, e indovinare la conversione sbaglia spesso.
+    tags:
+      - langchain
+      - large-language-model
+      - ollama
+      - rag
+      - self-hosted
+      - automation
+  # npm: pacchetti nuovi, settimane prima che finiscano su HN. Senza chiave.
+  # NB: la popolarità di npms.io è un punteggio normalizzato, non un contatore
+  # vivo — la heat qui resta euristica.
+  - name: npm
+    type: npm
+    limit: 20
+    enabled: true
+    max_age_days: 45     # pubblicati di recente, altrimenti è react e lodash
   # Lanci di prodotto da Product Hunt (GraphQL v2, token developer gratuito).
   # richiede PRODUCTHUNT_TOKEN in .env: abilitala dopo averlo impostato.
   - name: producthunt
