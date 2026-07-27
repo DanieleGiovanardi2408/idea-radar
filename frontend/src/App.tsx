@@ -1,14 +1,12 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import {
   Navigate,
-  NavLink,
   Route,
   Routes,
   useLocation,
   useNavigate,
   useSearchParams,
 } from 'react-router-dom'
-import { IdeaDetail } from './components/IdeaDetail'
 import {
   useHealth,
   useIdeas,
@@ -17,19 +15,14 @@ import {
   useStats,
   useTopics,
 } from './hooks/useRadarData'
+import { IdeaDetail } from './components/IdeaDetail'
+import { Nav } from './components/Nav'
 import { SignalRhythm } from './components/SignalRhythm'
 import { TrendingVideos } from './components/TrendingVideos'
 import { MonitorView } from './views/MonitorView'
 import { RadarView } from './views/RadarView'
 import { TopicsView } from './views/TopicsView'
 import { TrendsView } from './views/TrendsView'
-
-const TABS: [string, string][] = [
-  ['/radar', 'Radar'],
-  ['/topics', 'Topic'],
-  ['/trends', 'Trend'],
-  ['/monitor', 'Monitor'],
-]
 
 /* Il marchio: un mini-radar vivo, la stessa spazzata del quadrante. */
 function RadarMark() {
@@ -97,32 +90,10 @@ function App() {
     setSearchParams(next, { replace: true })
   }
 
-  /* Indicatore scorrevole della navigazione */
-  const navRef = useRef<HTMLElement | null>(null)
-  const tabRefs = useRef<Record<string, HTMLAnchorElement | null>>({})
-  const [indicator, setIndicator] = useState({ left: 0, width: 0 })
-
   const counts: Record<string, number | undefined> = {
     '/radar': ideas?.length,
     '/topics': topics?.length,
   }
-
-  useLayoutEffect(() => {
-    const measure = () => {
-      const tab = tabRefs.current[pathname]
-      const nav = navRef.current
-      if (!tab || !nav) return
-      const tabBox = tab.getBoundingClientRect()
-      const navBox = nav.getBoundingClientRect()
-      setIndicator({ left: tabBox.left - navBox.left, width: tabBox.width })
-    }
-    measure()
-    window.addEventListener('resize', measure)
-    // il font display arriva async: rimisura quando è pronto
-    document.fonts?.ready.then(measure).catch(() => undefined)
-    return () => window.removeEventListener('resize', measure)
-    // i contatori arrivano async e cambiano la larghezza dei tab
-  }, [pathname, ideas?.length, topics?.length])
 
   const onStartRun = () => {
     setRunError(null)
@@ -195,48 +166,7 @@ function App() {
           </div>
         </header>
 
-        {/* Non `role="tablist"`: i tab sono link con un URL e la loro vista è
-            una pagina, non un pannello che vive qui dentro. Marcarli come tab
-            farebbe perdere a chi usa uno screen reader l'informazione che sono
-            link (e imporrebbe la navigazione a frecce di un widget composito).
-            `<nav>` con un nome e l'`aria-current` che NavLink già emette è il
-            pattern corretto da quando il routing è passato agli URL. */}
-        <nav
-          ref={navRef}
-          aria-label="Viste del radar"
-          className="glass view-enter relative mt-6 flex gap-1 rounded-2xl p-1.5"
-        >
-          {/* indicatore scorrevole */}
-          <span
-            className="absolute top-1.5 bottom-1.5 rounded-xl bg-phosphor/12 shadow-[inset_0_0_0_1px_rgba(46,232,162,0.28),0_0_18px_-4px_rgba(46,232,162,0.35)] transition-all duration-300 ease-out"
-            style={{ left: indicator.left, width: indicator.width }}
-          />
-          {TABS.map(([to, label]) => (
-            <NavLink
-              key={to}
-              to={to}
-              ref={(el) => {
-                tabRefs.current[to] = el
-              }}
-              className={({ isActive }) =>
-                `relative z-10 flex-1 rounded-xl px-3.5 py-2 text-center font-display text-sm font-medium tracking-tight transition-colors duration-300 sm:flex-none ${
-                  isActive ? 'text-phosphor' : 'text-slate-500 hover:text-slate-300'
-                }`
-              }
-            >
-              {label}
-              {counts[to] !== undefined && counts[to]! > 0 && (
-                <span
-                  className={`ml-1.5 text-xs tabular-nums ${
-                    pathname === to ? 'text-phosphor/60' : 'text-slate-600'
-                  }`}
-                >
-                  {counts[to]}
-                </span>
-              )}
-            </NavLink>
-          ))}
-        </nav>
+        <Nav counts={counts} />
 
         {runError && (
           <p className="view-enter mt-4 rounded-xl border border-flare/25 bg-flare/5 px-3.5 py-2.5 text-sm text-flare">

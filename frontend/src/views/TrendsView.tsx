@@ -9,6 +9,7 @@ import {
   SkeletonCard,
 } from '../components/ui'
 import { useTrends } from '../hooks/useRadarData'
+import { dateAndTime } from '../dates'
 
 function DeltaChip({ value }: { value: number }) {
   if (value === 0) {
@@ -37,15 +38,6 @@ function trendTone(delta: number): 'up' | 'down' | 'flat' {
   if (delta > 0) return 'up'
   if (delta < 0) return 'down'
   return 'flat'
-}
-
-function shortDate(value: string): string {
-  return new Date(value).toLocaleString('it-IT', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 }
 
 export function TrendsView() {
@@ -111,7 +103,7 @@ export function TrendsView() {
               tone="up"
               width={280}
               height={72}
-              format={(v, i) => `${v} idee · ${shortDate(mover.points[i].started_at)}`}
+              format={(v, i) => `${v} idee · ${dateAndTime(mover.points[i].started_at)}`}
             />
           </div>
         </Panel>
@@ -151,7 +143,7 @@ export function TrendsView() {
               <AreaSpark
                 values={trend.points.map((p) => p.n_ideas)}
                 tone={trendTone(trend.delta_ideas)}
-                format={(v, i) => `${v} idee · ${shortDate(trend.points[i].started_at)}`}
+                format={(v, i) => `${v} idee · ${dateAndTime(trend.points[i].started_at)}`}
               />
             </Link>
           </Panel>

@@ -9,20 +9,12 @@ import {
 } from '../components/ui'
 import { useRuns, useStats } from '../hooks/useRadarData'
 import type { RunOut, StatsOut } from '../types'
+import { dateAndTime } from '../dates'
 
 const SOURCE_LABELS: Record<string, string> = {
   hn: 'Hacker News',
   github: 'GitHub',
   rss: 'Riviste e forum',
-}
-
-function formatTime(value: string): string {
-  return new Date(value).toLocaleString('it-IT', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 }
 
 function Funnel({ stats }: { stats: StatsOut }) {
@@ -83,7 +75,7 @@ function RunProgress({ run }: { run: RunOut }) {
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <h3 className="hud text-slate-500">
-            Run #{run.id} · {formatTime(run.started_at)}
+            Run #{run.id} · {dateAndTime(run.started_at)}
           </h3>
           <p className="mt-1.5 flex items-center gap-2.5 font-display text-lg font-medium tracking-tight text-slate-100">
             {running && (
@@ -235,7 +227,7 @@ function RunHistory() {
                     <span className="font-display font-medium text-slate-300">
                       #{run.id}
                     </span>{' '}
-                    · {formatTime(run.started_at)}
+                    · {dateAndTime(run.started_at)}
                   </span>
                   <span className="flex items-center gap-3 tabular-nums text-slate-600">
                     {run.n_items} segnali · {run.n_ideas_proposed} sopra soglia

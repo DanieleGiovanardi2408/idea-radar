@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useFocusTrap } from '../hooks/useFocusTrap'
 import { useIdea, useMarkSeen, usePatchIdea } from '../hooks/useRadarData'
 import type { IdeaDetailOut } from '../types'
+import { dayMonthYear } from '../dates'
 import {
   AreaSpark,
   Badge,
@@ -31,15 +32,6 @@ const METRICS: { label: string; key: keyof IdeaDetailOut }[] = [
   { label: 'Opportunity', key: 'opportunity' },
   { label: 'Fit', key: 'fit' },
 ]
-
-function formatDate(value: string | null): string {
-  if (!value) return '—'
-  return new Date(value).toLocaleDateString('it-IT', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  })
-}
 
 /** Sezione con etichetta HUD e ingresso scaglionato. */
 function Section({
@@ -350,7 +342,7 @@ export function IdeaDetail({
                         <p className="mt-0.5 text-xs text-slate-500">
                           <span className="text-slate-400">{item.source}</span>
                           {item.author && ` · ${item.author}`}
-                          {item.created_at && ` · ${formatDate(item.created_at)}`}
+                          {item.created_at && ` · ${dayMonthYear(item.created_at)}`}
                         </p>
                       </div>
                       {item.url && (
@@ -384,8 +376,8 @@ export function IdeaDetail({
             </Section>
 
             <footer className="hud flex items-center justify-between border-t border-white/[0.07] pt-4 text-slate-600">
-              <span>primo contatto {formatDate(idea.first_seen)}</span>
-              <span>ultimo {formatDate(idea.last_seen)}</span>
+              <span>primo contatto {dayMonthYear(idea.first_seen)}</span>
+              <span>ultimo {dayMonthYear(idea.last_seen)}</span>
             </footer>
           </div>
         )}

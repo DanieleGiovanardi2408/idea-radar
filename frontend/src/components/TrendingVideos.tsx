@@ -20,15 +20,7 @@ import { useState } from 'react'
 import { Panel } from './ui'
 import { useVideos } from '../hooks/useRadarData'
 import type { VideoOut } from '../types'
-
-function timeAgo(iso: string): string {
-  const then = new Date(iso).getTime()
-  if (Number.isNaN(then)) return ''
-  const hours = Math.round((Date.now() - then) / 3_600_000)
-  if (hours < 1) return 'ora'
-  if (hours < 24) return `${hours}h`
-  return `${Math.round(hours / 24)}g`
-}
+import { timeAgo } from '../dates'
 
 function IconSpeakerOff({ className = '' }: { className?: string }) {
   return (

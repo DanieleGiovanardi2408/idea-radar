@@ -92,6 +92,18 @@ In ordine di urgenza:
    lo stesso motivo dei blip: i loro numeri sono già scritti accanto.
 7. **Refactor mirati** — estrarre `useRadarData()` e `Nav` da App.tsx; geometria dei blip (`RadarScope.tsx:28-53`) in funzione pura testabile; formatter data unico (oggi triplicato in MonitorView/TrendsView/IdeaDetail); verificare il contratto di `startRun` (`App.tsx:131` legge `res.detail`, il backend risponde 202 con altro body).
 
+   **Aggiornamento 27 luglio — fatto.** `Nav` in `components/Nav.tsx` (con sé
+   porta via quattro pezzi di stato che non servivano a nessun altro: App.tsx da
+   304 a 241 righe); geometria in `components/radarGeometry.ts` con 9 test —
+   quelle erano le affermazioni matematiche del radar e non ne era verificata
+   nessuna; date in `src/dates.ts`, dove `formatTime` e `shortDate` si sono
+   rivelate la stessa funzione con due nomi, e ora un valore non valido dà "—"
+   invece di stampare "Invalid Date" nell'interfaccia. Il contratto di
+   `startRun` **era già a posto**: quella riga descrive il codice di prima che
+   l'endpoint diventasse `POST /runs` con il modello `RunStarted`, e il
+   frontend legge esattamente i campi che il backend manda (test in
+   `test_api.py`).
+
 ---
 
 ## Roadmap proposta
