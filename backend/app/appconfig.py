@@ -27,10 +27,14 @@ class SourceConfig(BaseModel):
     # Solo per type: arxiv — categorie arXiv in OR (es. ["cs.AI", "cs.SE"]);
     # se vuote si ripiega sulle keywords globali di config.
     categories: list[str] = Field(default_factory=list)
-    # Solo per type: github — finestra di NASCITA dei repo cercati. Senza, la
-    # Search API ordinata per stelle restituisce i più stellati di sempre, che
-    # sono per definizione mercati chiusi.
-    created_within_days: int = 540
+    # Solo per type: github — fasce di ETÀ dei repo cercati, in giorni. Ogni
+    # valore è il bordo superiore di una fascia: [90, 270, 540] cerca in 0-90,
+    # 90-270 e 270-540 giorni. Senza vincolo sulla nascita la Search API
+    # ordinata per stelle restituisce i più stellati di sempre, cioè mercati
+    # chiusi; una fascia sola invece si esaurisce in fretta (la stessa query
+    # ridà gli stessi repo a ogni run), mentre la fascia più giovane si rinnova
+    # da sé man mano che nascono progetti.
+    created_windows: list[int] = Field(default_factory=lambda: [90, 270, 540])
     min_stars: int = 10
 
 

@@ -27,8 +27,13 @@ sources:
     # ordinati per stelle. Senza, "ordinato per stelle" vuol dire freeCodeCamp e
     # tensorflow — i più famosi del mondo, cioè mercati chiusi. In 51 run la
     # vecchia query ha raccolto 31 repo sempre uguali, 22 creati prima del 2024.
-    # Finestra stretta = solo lanci recentissimi, larga = anche chi sale da un po'.
-    created_within_days: 540
+    #
+    # Le fasce d'età (bordi superiori, in giorni) si interrogano tutte, una
+    # query per keyword per fascia, e la quota si divide tra loro: le stelle si
+    # accumulano col tempo, quindi ordinare tutto insieme farebbe vincere sempre
+    # la fascia più vecchia. La prima fascia si rinnova da sé man mano che
+    # nascono progetti — è quella che tiene la fonte viva run dopo run.
+    created_windows: [90, 270, 540]
     min_stars: 10    # sotto questa soglia è rumore
   # Riviste, blog e forum: il lato "trend" del radar.
   - name: riviste-e-forum

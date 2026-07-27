@@ -65,15 +65,28 @@ class GitHubSource:
             headers["Authorization"] = f"Bearer {self.settings.github_token}"
         return headers
 
-    def search_query(self, keyword: str, today: datetime | None = None) -> str:
-        """La query per una keyword: giovane, non rumorosa, in tema.
+    def age_bands(self) -> list[tuple[int, int]]:
+        """Le fasce d'età da interrogare, come coppie (giorni_da, giorni_a)."""
+        edges = sorted({d for d in self.cfg.created_windows if d > 0})
+        if not edges:
+            return [(0, 540)]
+        return list(zip([0, *edges[:-1]], edges))
 
-        ``created:>`` è il vincolo che fa la differenza — senza, "ordinato per
-        stelle" significa "i più famosi del mondo", che è la domanda sbagliata.
+    def search_query(
+        self, keyword: str, band: tuple[int, int], today: datetime | None = None
+    ) -> str:
+        """La query per una keyword in una fascia d'età: giovane, in tema, non rumorosa.
+
+        Il vincolo sulla nascita è quello che fa la differenza — senza, "ordinato
+        per stelle" significa "i più famosi del mondo", che è la domanda sbagliata.
         """
         today = today or datetime.now(timezone.utc)
-        cutoff = (today - timedelta(days=self.cfg.created_within_days)).date()
-        return f'"{keyword}" stars:>={self.cfg.min_stars} created:>{cutoff.isoformat()}'
+        newer, older = band
+        start = (today - timedelta(days=older)).date().isoformat()
+        end = (today - timedelta(days=newer)).date().isoformat()
+        return (
+            f'"{keyword}" stars:>={self.cfg.min_stars} created:{start}..{end}'
+        )
 
     def _get_client(self) -> httpx.Client:
         if self._client is None:
@@ -83,39 +96,54 @@ class GitHubSource:
     def fetch(self) -> list[Item]:
         client = self._get_client()
         keywords = self.app_config.keywords or ["open source"]
-        # Per-keyword si chiede meno roba, tanto poi si tiene il meglio di tutte.
-        per_keyword = max(5, self.cfg.limit // max(len(keywords), 1) * 2)
+        bands = self.age_bands()
+        # La quota si divide tra le FASCE, non si assegna al miglior punteggio
+        # globale: le stelle si accumulano col tempo, quindi ordinare tutto
+        # insieme farebbe vincere sempre la fascia più vecchia — proprio il
+        # pregiudizio che questa fonte deve togliersi.
+        per_band = max(1, self.cfg.limit // len(bands))
+        per_query = max(5, per_band)
+        collected: list[Item] = []
+        seen_ids: set[str] = set()
+        first_request = True
         try:
-            seen: dict[str, Item] = {}
-            for index, keyword in enumerate(keywords):
-                if index > 0:
-                    time.sleep(REQUEST_DELAY)
-                try:
-                    resp = client.get(
-                        SEARCH_URL,
-                        params={
-                            "q": self.search_query(keyword),
-                            "sort": "stars",
-                            "order": "desc",
-                            "per_page": per_keyword,
-                        },
-                        headers=self._headers(),
-                    )
-                    resp.raise_for_status()
-                    repos = resp.json().get("items", [])
-                except (httpx.HTTPError, ValueError) as exc:
-                    # Una keyword fallita (o un rate limit) non ferma le altre.
-                    logger.warning("GitHub, keyword %r: %s", keyword, exc)
-                    continue
-                for repo in repos:
-                    item = self._to_item(repo)
-                    seen.setdefault(item.external_id, item)
-            ranked = sorted(
-                seen.values(),
-                key=lambda i: (i.engagement_json or {}).get("stars", 0),
-                reverse=True,
-            )
-            return ranked[: self.cfg.limit]
+            for band in bands:
+                in_band: dict[str, Item] = {}
+                for keyword in keywords:
+                    if not first_request:
+                        time.sleep(REQUEST_DELAY)
+                    first_request = False
+                    try:
+                        resp = client.get(
+                            SEARCH_URL,
+                            params={
+                                "q": self.search_query(keyword, band),
+                                "sort": "stars",
+                                "order": "desc",
+                                "per_page": per_query,
+                            },
+                            headers=self._headers(),
+                        )
+                        resp.raise_for_status()
+                        repos = resp.json().get("items", [])
+                    except (httpx.HTTPError, ValueError) as exc:
+                        # Una query fallita (o un rate limit) non ferma le altre.
+                        logger.warning(
+                            "GitHub, keyword %r fascia %s: %s", keyword, band, exc
+                        )
+                        continue
+                    for repo in repos:
+                        item = self._to_item(repo)
+                        if item.external_id not in seen_ids:
+                            in_band.setdefault(item.external_id, item)
+                best = sorted(
+                    in_band.values(),
+                    key=lambda i: (i.engagement_json or {}).get("stars", 0),
+                    reverse=True,
+                )[:per_band]
+                collected.extend(best)
+                seen_ids.update(i.external_id for i in best)
+            return collected[: self.cfg.limit]
         finally:
             if self._owns_client and self._client is not None:
                 self._client.close()
