@@ -97,6 +97,8 @@ The first finds duplicates; the second stops a group from growing by chaining (A
 
 Thresholds are calibrated against a ground truth of items that appeared on two sources with the same title, not picked by eye — see the comments in [`backend/config.yaml`](backend/config.yaml) for the numbers and the reasoning.
 
+Topics the model names identically are merged, keeping the older one and its history. The name is the model's own judgement of what a group *is*: if it repeats it, they are the same theme, and keeping them apart is a distinction nobody can explain. On this archive it collapsed 18 topics — one label, "agenti AI per il self-hosting", had been handed out **twelve** times, which is also a useful hint that `topic_threshold` is on the strict side.
+
 ---
 
 ## The four views
@@ -104,7 +106,7 @@ Thresholds are calibrated against a ground truth of items that appeared on two s
 The interface is a single-page "radar room": a dark, glass-panelled console with a phosphor-green accent, live sweep animation, and [Space Grotesk](https://fonts.google.com/specimen/Space+Grotesk) throughout. Data and models stay entirely local.
 
 - **Radar** — every idea as a blip on a polar scope, filterable by **theme** (the profiles from `config.yaml`). Distance from the centre is `1 − composite`, so the best opportunities sit *on your heading*, near the middle; a rotating sweep makes each blip flash as it passes. Below the scope, the same ideas as a ranked, searchable list. Each idea can be **pinned** (kept on top and shielded from auto-archiving), **dismissed** (hidden until you ask for it back), and **annotated** with a private note — actions that persist across runs and are reachable by deep link (`?idea=<id>`).
-- **Topic** — ideas grouped by theme, each topic expandable into its members (fetched per topic, so the accordion isn't limited by the paginated idea list). Sortable by score, size or recency, and by default it hides themes holding a single idea — with calibrated thresholds those are the majority, they're real, but scrolling hundreds of them is noise.
+- **Topic** — two levels: ideas grouped under the **macro-theme** they belong to (the profiles you declared) and, inside it, the micro-themes the embeddings found. Each topic expands into its members (fetched per topic, so the accordion isn't limited by the paginated idea list). Sortable by score, size or recency, and by default it hides themes holding a single idea — with calibrated thresholds those are the majority, they're real, but scrolling hundreds of them is noise.
 - **Trend** — what's moving between runs, with a hover-tooltip area chart per topic and the biggest mover highlighted; every entry links through to its theme. (Needs at least two runs; with one, deltas are zero by construction.)
 - **Monitor** — live pipeline progress: ingestion funnel, per-source counts, active sources, and a full run history where each run expands to its per-source outcome — the place to notice a source that quietly stopped bringing anything. While a run is in progress the whole view polls every 2s.
 

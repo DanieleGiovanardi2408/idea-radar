@@ -11,6 +11,7 @@ import {
   SkeletonCard,
 } from '../components/ui'
 import {
+  useProfiles,
   useTopicIdeas,
   useTopics,
   type TopicOrder,
@@ -155,6 +156,7 @@ export function TopicsView({ onSelect }: { onSelect: (id: number) => void }) {
   // Trend si mostrano tutti.
   const filtering = onlyGroups && !Number.isInteger(focused)
 
+  const { data: profiles = [] } = useProfiles()
   const { data: topics = [], isPending, isError } = useTopics({
     minIdeas: filtering ? 2 : 1,
     orderBy: order,
@@ -230,19 +232,52 @@ export function TopicsView({ onSelect }: { onSelect: (id: number) => void }) {
     )
   }
 
+  /* Due livelli: il macro-tema viene dai profili (dichiarato in config.yaml), il
+     micro dal clustering semantico. Raggruppare qui è l'unica cosa che serviva:
+     la gerarchia esiste già nei dati, era solo appiattita nella vista. */
+  const groups = profiles
+    .map((p) => ({
+      name: p.name,
+      label: p.label,
+      topics: topics.filter((t) => t.profile === p.name),
+    }))
+    .filter((g) => g.topics.length > 0)
+  const orphans = topics.filter(
+    (t) => !t.profile || !profiles.some((p) => p.name === t.profile),
+  )
+  if (orphans.length > 0) {
+    groups.push({ name: '', label: 'Senza tema', topics: orphans })
+  }
+
+  let rendered = 0
   return (
     <div className="grid gap-3">
       {controls}
-      {topics.map((topic, index) => (
-        <TopicRow
-          key={topic.id}
-          topic={topic}
-          index={index}
-          open={openId === topic.id}
-          onToggle={() => setOpenId(openId === topic.id ? null : topic.id)}
-          onSelect={onSelect}
-        />
-      ))}
+      {groups.map((group) => {
+        const ideas = group.topics.reduce((sum, t) => sum + t.n_ideas, 0)
+        return (
+          <section key={group.name || 'orphans'} className="grid gap-2">
+            <h2 className="flex items-baseline gap-2 px-1 pt-2">
+              <span className="font-display text-sm font-semibold tracking-tight text-slate-300">
+                {group.label}
+              </span>
+              <span className="text-xs tabular-nums text-slate-600">
+                {group.topics.length} temi · {ideas} idee
+              </span>
+            </h2>
+            {group.topics.map((topic) => (
+              <TopicRow
+                key={topic.id}
+                topic={topic}
+                index={rendered++}
+                open={openId === topic.id}
+                onToggle={() => setOpenId(openId === topic.id ? null : topic.id)}
+                onSelect={onSelect}
+              />
+            ))}
+          </section>
+        )
+      })}
     </div>
   )
 }

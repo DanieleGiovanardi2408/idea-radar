@@ -5,7 +5,7 @@ tutte le idee (o tutti gli score) in memoria per poi tagliarli funzionava
 con dieci run, non con mesi di run schedulati.
 """
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 from sqlalchemy import func
 from sqlmodel import Session, select
@@ -136,11 +136,23 @@ def topics_overview(
         ideas = by_topic.get(topic.id, [])
         if len(ideas) < max(min_ideas, 1):
             continue
+        # Il macro-tema del topic è quello della maggioranza delle sue idee. Un
+        # topic PUÒ stare a cavallo di due profili ("agenti AI per il
+        # self-hosting" appartiene sia agli agenti sia a dev-infra): la
+        # maggioranza è una scelta, non una verità, ma dà una gerarchia leggibile
+        # invece di 900 topic piatti.
+        votes = Counter(
+            latest[i.id].profile
+            for i in ideas
+            if i.id in latest and latest[i.id].profile
+        )
+        profile = votes.most_common(1)[0][0] if votes else None
         composites = [latest[i.id].composite for i in ideas if i.id in latest]
         overview.append(
             {
                 "id": topic.id,
                 "label": topic.label,
+                "profile": profile,
                 "n_ideas": len(ideas),
                 "n_items": sum(len(i.items) for i in ideas),
                 "n_proposed": sum(1 for i in ideas if i.status == IdeaStatus.PROPOSED),

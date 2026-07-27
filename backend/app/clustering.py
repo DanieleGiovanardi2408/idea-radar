@@ -329,7 +329,71 @@ def assign_ideas_to_topics(
             logger.warning("Naming del topic fallito: %s", exc)
         session.add(topic)
     session.commit()
-    return topics
+    merge_topics_with_the_same_label(session)
+    return [t for t in topics if session.get(Topic, t.id) is not None]
+
+
+def _normalized_label(label: str) -> str:
+    return " ".join(label.lower().split())
+
+
+def merge_topics_with_the_same_label(session: Session) -> int:
+    """Fonde i topic che il modello ha chiamato allo stesso modo.
+
+    Sull'archivio reale "Agenti AI per il self-hosting" esisteva DUE volte, con
+    19 idee per parte, e nella vista a due livelli comparivano due intestazioni
+    identiche sotto lo stesso macro-tema. Il nome è il giudizio del modello su
+    cosa sia quel gruppo: se lo ripete, per lui sono la stessa cosa, e tenerli
+    separati è una distinzione che nessuno sa spiegare.
+
+    Sopravvive il topic più vecchio (id minore): è quello che ha aperto il tema,
+    e i suoi ``TopicStat`` sono la serie storica su cui poggia la vista Trend.
+    """
+    by_label: dict[str, list[Topic]] = {}
+    for topic in session.exec(select(Topic).order_by(Topic.id)).all():
+        by_label.setdefault(_normalized_label(topic.label), []).append(topic)
+
+    merged = 0
+    for duplicates in by_label.values():
+        if len(duplicates) < 2:
+            continue
+        survivor, *absorbed = duplicates
+        for victim in absorbed:
+            for idea in session.exec(
+                select(Idea).where(Idea.topic_id == victim.id)
+            ).all():
+                idea.topic_id = survivor.id
+                session.add(idea)
+            # Le fotografie del topic assorbito non hanno più un topic: via.
+            for stat in session.exec(
+                select(TopicStat).where(TopicStat.topic_id == victim.id)
+            ).all():
+                session.delete(stat)
+            survivor.first_seen = min(survivor.first_seen, victim.first_seen)
+            survivor.last_seen = max(survivor.last_seen, victim.last_seen)
+            session.add(survivor)
+            session.delete(victim)
+            merged += 1
+    if merged:
+        session.commit()
+        # Il centroide del sopravvissuto ora deve coprire anche i nuovi membri.
+        for duplicates in by_label.values():
+            if len(duplicates) < 2:
+                continue
+            survivor = session.get(Topic, duplicates[0].id)
+            if survivor is None:
+                continue
+            members = session.exec(
+                select(Idea).where(Idea.topic_id == survivor.id)
+            ).all()
+            new_centroid = centroid(
+                [m.centroid_json for m in members if m.centroid_json]
+            )
+            if new_centroid is not None:
+                survivor.centroid_json = new_centroid
+                session.add(survivor)
+        session.commit()
+    return merged
 
 
 def group_items_by_similarity(

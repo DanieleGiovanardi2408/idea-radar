@@ -102,6 +102,8 @@ class IdeaDetailOut(IdeaOut):
 class TopicOut(BaseModel):
     id: int
     label: str
+    # Macro-tema: il profilo della maggioranza delle idee del topic.
+    profile: str | None = None
     n_ideas: int
     n_items: int
     n_proposed: int

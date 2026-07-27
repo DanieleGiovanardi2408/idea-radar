@@ -60,6 +60,8 @@ export type IdeaDetailOut = IdeaOut & { history: ScorePoint[] }
 export type TopicOut = {
   id: number
   label: string
+  /** Macro-tema: il profilo della maggioranza delle idee del topic. */
+  profile: string | null
   n_ideas: number
   n_items: number
   n_proposed: number

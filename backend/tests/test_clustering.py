@@ -10,6 +10,7 @@ from app.clustering import (
     assign_ideas_to_topics,
     attach_item_to_idea,
     group_indices_by_similarity,
+    merge_topics_with_the_same_label,
     sweep_topic_thresholds,
 )
 from app.db import init_db, upsert_item
@@ -358,6 +359,69 @@ def test_a_topic_that_grew_gets_renamed(session: Session) -> None:
 
     assert len(calls) == 2
     assert session.exec(select(Topic)).one().label == "nome 2"
+
+
+def test_topics_named_the_same_are_merged(session: Session) -> None:
+    """Sull'archivio reale "Agenti AI per il self-hosting" esisteva due volte.
+
+    Con 19 idee per parte, e nella vista a due livelli due intestazioni identiche
+    sotto lo stesso macro-tema. Il nome è il giudizio del modello su cosa sia quel
+    gruppo: se lo ripete, per lui sono la stessa cosa.
+    """
+    names = iter(["Agenti AI", "agenti  ai", "Domotica"])
+
+    def namer(labels: list[str]) -> str:
+        return next(names)
+
+    for i, vec in enumerate([[1.0, 0.0], [0.0, 1.0], [0.5, 0.5]]):
+        item = _item(session, str(i), f"idea {i}", vec)
+        attach_item_to_idea(session, item, vec, threshold=0.999)
+
+    # Soglia altissima: tre topic distinti, che il namer battezza in modo doppio.
+    assign_ideas_to_topics(session, threshold=0.999, namer=namer, label_min_ideas=1)
+
+    topics = session.exec(select(Topic)).all()
+    labels = sorted(t.label for t in topics)
+    assert labels == ["Agenti AI", "Domotica"]  # i due omonimi sono uno
+    survivor = next(t for t in topics if t.label == "Agenti AI")
+    members = session.exec(select(Idea).where(Idea.topic_id == survivor.id)).all()
+    assert len(members) == 2  # nessuna idea è rimasta orfana
+
+
+def test_merging_keeps_the_older_topic_and_its_history(session: Session) -> None:
+    """Sopravvive chi ha aperto il tema: i suoi TopicStat sono la serie del Trend."""
+    old = Topic(label="Agenti AI", centroid_json=[1.0, 0.0])
+    session.add(old)
+    session.commit()
+    session.refresh(old)
+    young = Topic(label="agenti ai", centroid_json=[0.9, 0.1])
+    session.add(young)
+    session.commit()
+    session.refresh(young)
+
+    run = Run(status=RunStatus.DONE)
+    session.add(run)
+    session.commit()
+    session.add(TopicStat(topic_id=old.id, run_id=run.id, n_ideas=3, n_items=3))
+    session.add(TopicStat(topic_id=young.id, run_id=run.id, n_ideas=1, n_items=1))
+    session.commit()
+
+    merged = merge_topics_with_the_same_label(session)
+
+    assert merged == 1
+    assert session.get(Topic, old.id) is not None
+    assert session.get(Topic, young.id) is None
+    stats = session.exec(select(TopicStat)).all()
+    assert [s.topic_id for s in stats] == [old.id]  # niente statistiche orfane
+
+
+def test_different_labels_are_left_alone(session: Session) -> None:
+    for label in ("Agenti AI", "Domotica", "Dev infra"):
+        session.add(Topic(label=label, centroid_json=[1.0, 0.0]))
+    session.commit()
+
+    assert merge_topics_with_the_same_label(session) == 0
+    assert len(session.exec(select(Topic)).all()) == 3
 
 
 def test_group_indices_by_similarity_threshold_effect() -> None:
