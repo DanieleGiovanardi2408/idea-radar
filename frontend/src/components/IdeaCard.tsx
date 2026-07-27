@@ -22,7 +22,9 @@ export function IdeaCard({
   index?: number
   onSelect: (id: number) => void
 }) {
-  const { mutate: patchIdea, isPending } = usePatchIdea()
+  // Nessun `disabled` sui pulsanti: l'aggiornamento è ottimistico, quindi
+  // l'icona cambia subito e torna indietro se il server rifiuta.
+  const { mutate: patchIdea } = usePatchIdea()
   const sources = Array.from(new Set(idea.items.map((i) => i.source)))
   const rank = index + 1
   const dismissed = idea.dismissed_at !== null
@@ -99,10 +101,9 @@ export function IdeaCard({
                   e.stopPropagation()
                   patchIdea({ id: idea.id, body: { pinned: !idea.pinned } })
                 }}
-                disabled={isPending}
                 title={idea.pinned ? 'Togli il pin' : 'Pinna in cima'}
                 aria-label={idea.pinned ? 'Togli il pin' : 'Pinna in cima'}
-                className={`rounded-lg p-1.5 ring-1 transition-colors duration-300 disabled:opacity-50 ${
+                className={`rounded-lg p-1.5 ring-1 transition-colors duration-300 ${
                   idea.pinned
                     ? 'bg-phosphor/10 text-phosphor ring-phosphor/30'
                     : 'text-slate-600 ring-white/[0.06] hover:text-phosphor hover:ring-phosphor/30'
@@ -115,10 +116,9 @@ export function IdeaCard({
                   e.stopPropagation()
                   patchIdea({ id: idea.id, body: { dismissed: !dismissed } })
                 }}
-                disabled={isPending}
                 title={dismissed ? 'Ripristina' : 'Scarta'}
                 aria-label={dismissed ? 'Ripristina' : 'Scarta'}
-                className={`rounded-lg p-1.5 ring-1 transition-colors duration-300 disabled:opacity-50 ${
+                className={`rounded-lg p-1.5 ring-1 transition-colors duration-300 ${
                   dismissed
                     ? 'text-slate-500 ring-white/[0.06] hover:text-phosphor hover:ring-phosphor/30'
                     : 'text-slate-600 ring-white/[0.06] hover:text-flare hover:ring-flare/30'

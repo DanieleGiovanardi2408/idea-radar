@@ -27,6 +27,11 @@ class SourceConfig(BaseModel):
     # Solo per type: arxiv — categorie arXiv in OR (es. ["cs.AI", "cs.SE"]);
     # se vuote si ripiega sulle keywords globali di config.
     categories: list[str] = Field(default_factory=list)
+    # Solo per type: github — finestra di NASCITA dei repo cercati. Senza, la
+    # Search API ordinata per stelle restituisce i più stellati di sempre, che
+    # sono per definizione mercati chiusi.
+    created_within_days: int = 540
+    min_stars: int = 10
 
 
 class ClusteringConfig(BaseModel):

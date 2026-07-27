@@ -8,7 +8,7 @@
 import { useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
-import type { IdeaDetailOut, PatchIdeaBody, StatsOut } from '../types'
+import type { IdeaDetailOut, IdeaOut, PatchIdeaBody, StatsOut } from '../types'
 
 const LIVE_MS = 2000
 
@@ -133,11 +133,69 @@ export function useStartRun() {
   })
 }
 
+/** L'effetto locale di un PATCH, applicato subito senza aspettare il server.
+ *
+ *  Generica sui tre campi di stato utente, perché va applicata sia al dossier
+ *  (`IdeaDetailOut`) sia alle righe delle liste (`IdeaOut`): il pin cliccato su
+ *  una card deve accendersi lì, non solo dentro il dettaglio. */
+function optimistic<T extends Pick<IdeaOut, 'pinned' | 'dismissed_at' | 'note'>>(
+  prev: T,
+  body: PatchIdeaBody,
+): T {
+  const next = { ...prev }
+  if (body.pinned !== undefined) next.pinned = body.pinned
+  if (body.dismissed !== undefined) {
+    next.dismissed_at = body.dismissed ? new Date().toISOString() : null
+  }
+  if (body.note !== undefined) next.note = body.note
+  return next
+}
+
+/** Azioni utente su un'idea, con effetto immediato in UI.
+ *
+ *  Ogni chiamata a questo hook è una mutation INDIPENDENTE: va usata una per
+ *  concetto (pin, scarta, nota), non una condivisa. Con una sola, `isPending`
+ *  di un'azione bloccava i pulsanti delle altre — e la PATCH automatica di
+ *  "visto" all'apertura rendeva il dossier di sola lettura per tutta la sua
+ *  durata, cioè esattamente quando l'utente ci clicca sopra.
+ *
+ *  L'aggiornamento è ottimistico: il pin si accende subito e torna indietro se
+ *  il server rifiuta. Su un backend impegnato da un run è la differenza tra
+ *  "reattivo" e "rotto". */
 export function usePatchIdea() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ id, body }: { id: number; body: PatchIdeaBody }) =>
       api.patchIdea(id, body),
+    onMutate: async ({ id, body }) => {
+      await queryClient.cancelQueries({ queryKey: ['idea', id] })
+      const previous = queryClient.getQueryData<IdeaDetailOut>(['idea', id])
+      if (previous) {
+        queryClient.setQueryData<IdeaDetailOut>(
+          ['idea', id],
+          optimistic(previous, body),
+        )
+      }
+      // Tutte le liste in cache (radar, scartate, per topic) in un colpo.
+      const lists = queryClient.getQueriesData<IdeaOut[]>({ queryKey: ['ideas'] })
+      for (const [key, list] of lists) {
+        if (!list) continue
+        queryClient.setQueryData<IdeaOut[]>(
+          key,
+          list.map((row) => (row.id === id ? optimistic(row, body) : row)),
+        )
+      }
+      return { previous, lists }
+    },
+    onError: (_error, { id }, context) => {
+      // Rollback: meglio tornare visibilmente indietro che mentire.
+      if (context?.previous) {
+        queryClient.setQueryData(['idea', id], context.previous)
+      }
+      for (const [key, list] of context?.lists ?? []) {
+        queryClient.setQueryData(key, list)
+      }
+    },
     onSuccess: (updated) => {
       // Il PATCH risponde l'IdeaOut aggiornata: fondila nel dettaglio in cache
       // (che in più ha la history) e lascia che le liste si rifacciano da sole
@@ -147,5 +205,16 @@ export function usePatchIdea() {
       )
       queryClient.invalidateQueries({ queryKey: ['ideas'] })
     },
+  })
+}
+
+/** Segna l'idea come vista: automatica all'apertura, quindi silenziosa.
+ *
+ *  Separata di proposito da ``usePatchIdea``: non deve né disabilitare i
+ *  comandi dell'utente né invalidare le liste (nessuna vista dipende da
+ *  ``seen_at``), altrimenti aprire un dossier costa un refetch di tutto. */
+export function useMarkSeen() {
+  return useMutation({
+    mutationFn: (id: number) => api.patchIdea(id, { seen: true }),
   })
 }

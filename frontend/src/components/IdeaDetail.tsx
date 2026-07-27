@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { useIdea, usePatchIdea } from '../hooks/useRadarData'
+import { useIdea, useMarkSeen, usePatchIdea } from '../hooks/useRadarData'
 import type { IdeaDetailOut } from '../types'
 import {
   AreaSpark,
@@ -66,7 +66,11 @@ export function IdeaDetail({
   onClose: () => void
 }) {
   const { data: idea, isError } = useIdea(ideaId)
-  const { mutate: patchIdea, isPending: patching } = usePatchIdea()
+  // Una mutation per concetto, non una condivisa: così il pin non disabilita la
+  // nota, e nessuna delle due viene bloccata dal "visto" automatico.
+  const { mutate: patchIdea } = usePatchIdea()
+  const noteMutation = usePatchIdea()
+  const { mutate: markSeen } = useMarkSeen()
 
   // Alla prima apertura del dettaglio il segnale è "visto": una sola PATCH
   // per apertura, il ref evita i reinvii ad ogni render.
@@ -74,9 +78,9 @@ export function IdeaDetail({
   useEffect(() => {
     if (seenFor.current === ideaId) return
     seenFor.current = ideaId
-    patchIdea({ id: ideaId, body: { seen: true } })
-    // patchIdea (mutate di React Query) è stabile tra i render
-  }, [ideaId, patchIdea])
+    markSeen(ideaId)
+    // markSeen (mutate di React Query) è stabile tra i render
+  }, [ideaId, markSeen])
 
   // La nota è testo locale finché non salvi: seed una volta per idea, così
   // un refetch in background non ti cancella quello che stai scrivendo.
@@ -89,12 +93,15 @@ export function IdeaDetail({
     }
   }, [idea, ideaId])
 
+  // Nessuna guardia su "c'è un'altra azione in corso": scartava il salvataggio
+  // in silenzio. L'unico motivo per non chiamare il server è che il testo sia
+  // già quello salvato.
   const saveNote = () => {
-    if (!idea || patching) return
+    if (!idea) return
     const trimmed = note.trim()
     const next = trimmed === '' ? null : trimmed
     if (next === (idea.note ?? null)) return
-    patchIdea({ id: ideaId, body: { note: next } })
+    noteMutation.mutate({ id: ideaId, body: { note: next } })
   }
 
   useEffect(() => {
@@ -177,7 +184,6 @@ export function IdeaDetail({
                   onClick={() =>
                     patchIdea({ id: ideaId, body: { pinned: !idea.pinned } })
                   }
-                  disabled={patching}
                   title={idea.pinned ? 'Togli il pin' : 'Pinna in cima'}
                   aria-label={idea.pinned ? 'Togli il pin' : 'Pinna in cima'}
                   className={`glass glass-hover rounded-xl p-2 transition-colors disabled:opacity-50 ${
@@ -190,7 +196,6 @@ export function IdeaDetail({
                   onClick={() =>
                     patchIdea({ id: ideaId, body: { dismissed: !dismissed } })
                   }
-                  disabled={patching}
                   title={dismissed ? 'Ripristina' : 'Scarta'}
                   aria-label={dismissed ? 'Ripristina' : 'Scarta'}
                   className={`glass glass-hover rounded-xl p-2 transition-colors disabled:opacity-50 ${
@@ -295,15 +300,22 @@ export function IdeaDetail({
                 className="w-full resize-y rounded-xl border border-transparent bg-white/[0.03] px-3.5 py-2.5 text-sm leading-relaxed text-slate-200 transition-colors placeholder:text-slate-600 focus:border-phosphor/30 focus:bg-white/[0.05] focus:outline-none"
               />
               <div className="mt-2 flex items-center justify-between">
-                <span className="text-xs text-slate-600">
-                  {patching
+                <span
+                  className={`text-xs ${
+                    noteMutation.isError ? 'text-flare' : 'text-slate-600'
+                  }`}
+                >
+                  {noteMutation.isPending
                     ? 'Salvataggio…'
-                    : 'Si salva da sola quando esci dal campo. Vuota = cancellata.'}
+                    : noteMutation.isError
+                      ? 'Salvataggio fallito: il backend risponde? Riprova.'
+                      : noteMutation.isSuccess
+                        ? 'Nota salvata.'
+                        : 'Si salva da sola quando esci dal campo. Vuota = cancellata.'}
                 </span>
                 <button
                   onClick={saveNote}
-                  disabled={patching}
-                  className="glass glass-hover rounded-lg px-2.5 py-1 text-xs font-medium text-phosphor disabled:opacity-50"
+                  className="glass glass-hover rounded-lg px-2.5 py-1 text-xs font-medium text-phosphor"
                 >
                   Salva nota
                 </button>

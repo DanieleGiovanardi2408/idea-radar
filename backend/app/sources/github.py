@@ -1,11 +1,23 @@
 """Collector GitHub tramite la Search API (token gratuito opzionale).
 
-Non esiste un endpoint ufficiale "trending": usiamo la Search API filtrando
-per keyword e ordinando per stelle. Senza token funziona comunque, ma con
-rate limit molto più basso.
+Non esiste un endpoint ufficiale "trending", quindi lo si costruisce con due
+vincoli sulla Search API: **repo nati di recente**, ordinati per stelle. È la
+differenza tra "i più stellati di sempre" e "quelli che stanno salendo".
+
+La prima versione ordinava per stelle senza filtro sulla data, e in 51 run ha
+raccolto 31 repo sempre uguali: freeCodeCamp (452k stelle), tensorflow (196k),
+ohmyzsh (188k), 22 su 31 creati prima del 2024. Cioè l'esatto opposto del caso
+che questo progetto mette in copertina — "2k stelle in tre mesi" — e con lo
+scoring a gate quei giganti valgono ormai ~0.1: la fonte non contribuiva nulla.
+
+Una richiesta per keyword invece di una sola in OR: costa 6 chiamate su un
+limite di 30/minuto col token, e ogni keyword porta i suoi emergenti invece di
+farsi schiacciare dal termine più popolare.
 """
 
-from datetime import datetime
+import logging
+import time
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -15,8 +27,11 @@ from app.models import Item
 from app.sources.base import register_source
 from app.sources.profiles import SourceProfile, register_profile
 
+logger = logging.getLogger(__name__)
+
 SEARCH_URL = "https://api.github.com/search/repositories"
 SOURCE_NAME = "github"
+REQUEST_DELAY = 0.5  # una richiesta per keyword: gentilezza tra l'una e l'altra
 
 PROFILE = SourceProfile(
     velocity_cap=30.0,  # stelle/giorno che valgono heat = 1.0
@@ -50,11 +65,15 @@ class GitHubSource:
             headers["Authorization"] = f"Bearer {self.settings.github_token}"
         return headers
 
-    def _query(self) -> str:
-        keywords = self.app_config.keywords or ["open source"]
-        # Almeno 10 stelle per tagliare il rumore; keyword in OR.
-        terms = " OR ".join(f'"{k}"' for k in keywords)
-        return f"{terms} stars:>10"
+    def search_query(self, keyword: str, today: datetime | None = None) -> str:
+        """La query per una keyword: giovane, non rumorosa, in tema.
+
+        ``created:>`` è il vincolo che fa la differenza — senza, "ordinato per
+        stelle" significa "i più famosi del mondo", che è la domanda sbagliata.
+        """
+        today = today or datetime.now(timezone.utc)
+        cutoff = (today - timedelta(days=self.cfg.created_within_days)).date()
+        return f'"{keyword}" stars:>={self.cfg.min_stars} created:>{cutoff.isoformat()}'
 
     def _get_client(self) -> httpx.Client:
         if self._client is None:
@@ -63,20 +82,40 @@ class GitHubSource:
 
     def fetch(self) -> list[Item]:
         client = self._get_client()
+        keywords = self.app_config.keywords or ["open source"]
+        # Per-keyword si chiede meno roba, tanto poi si tiene il meglio di tutte.
+        per_keyword = max(5, self.cfg.limit // max(len(keywords), 1) * 2)
         try:
-            resp = client.get(
-                SEARCH_URL,
-                params={
-                    "q": self._query(),
-                    "sort": "stars",
-                    "order": "desc",
-                    "per_page": self.cfg.limit,
-                },
-                headers=self._headers(),
+            seen: dict[str, Item] = {}
+            for index, keyword in enumerate(keywords):
+                if index > 0:
+                    time.sleep(REQUEST_DELAY)
+                try:
+                    resp = client.get(
+                        SEARCH_URL,
+                        params={
+                            "q": self.search_query(keyword),
+                            "sort": "stars",
+                            "order": "desc",
+                            "per_page": per_keyword,
+                        },
+                        headers=self._headers(),
+                    )
+                    resp.raise_for_status()
+                    repos = resp.json().get("items", [])
+                except (httpx.HTTPError, ValueError) as exc:
+                    # Una keyword fallita (o un rate limit) non ferma le altre.
+                    logger.warning("GitHub, keyword %r: %s", keyword, exc)
+                    continue
+                for repo in repos:
+                    item = self._to_item(repo)
+                    seen.setdefault(item.external_id, item)
+            ranked = sorted(
+                seen.values(),
+                key=lambda i: (i.engagement_json or {}).get("stars", 0),
+                reverse=True,
             )
-            resp.raise_for_status()
-            repos = resp.json().get("items", [])
-            return [self._to_item(repo) for repo in repos]
+            return ranked[: self.cfg.limit]
         finally:
             if self._owns_client and self._client is not None:
                 self._client.close()
