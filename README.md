@@ -278,6 +278,8 @@ Runtime behaviour lives in [`backend/config.yaml`](backend/config.yaml) — sour
 | `EMBEDDING_MODEL` | Embedding model (default `nomic-embed-text`) |
 | `YOUTUBE_API_KEY` | Free Google key for the video panel only — nothing in the pipeline uses it, and without it the panel switches itself off with an explanation instead of looking broken |
 
+Embeddings are asked for in batches: `/api/embed` takes a list, so a run with 280 new items makes 9 requests instead of 280 (`throughput.embed_batch_size`, default 32). The model still works through them one at a time — what disappears is round-trip latency and HTTP overhead, not compute. On an Ollama too old to expose that route the embedder falls back to the legacy one, one request per text, and says so in the log.
+
 Five knobs worth knowing: `scoring.threshold` controls how selective the radar is (and is tied to the two-gate formula — don't carry an old value over), `scoring.opportunity_floor` how much a saturated market keeps (0 erases it, 1 disables the gate), `clustering.idea_threshold` controls how aggressively duplicate signals merge (higher = only near-identical items collapse), `clustering.cohesion_floor` how homogeneous an idea must stay to keep accepting members (0 disables the check), and `scoring.heat_window_days` sets the sliding window the delta-based heat measures velocity over. The two clustering thresholds are tied to the embedding model: changing `EMBEDDING_MODEL` or the task prefix means re-calibrating them, then `rebuild-ideas`.
 
 The GitHub collector deserves a note, because getting it wrong is silent. There is no official "trending" endpoint, so it is built out of constraints on the Search API: **age bands** on the creation date, sorted by stars, one query per keyword per band.

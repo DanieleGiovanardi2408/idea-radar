@@ -12,6 +12,7 @@ from app.db import init_db, upsert_item
 from app.llm import IdeaInsight
 from app.models import Item, Score
 from app.pipeline import run_pipeline
+from fakes import EmbedManyMixin
 
 
 class CountingOllama:
@@ -30,7 +31,7 @@ class CountingOllama:
         return "topic"
 
 
-class FakeEmbedder:
+class FakeEmbedder(EmbedManyMixin):
     unavailable = False
 
     def embed(self, text: str) -> list[float]:

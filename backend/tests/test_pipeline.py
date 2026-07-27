@@ -37,9 +37,18 @@ class FakeEmbedder:
 
     unavailable = False
 
+    def __init__(self) -> None:
+        # Quante richieste ha ricevuto: la pipeline ne deve fare una per batch,
+        # non una per item.
+        self.chiamate = 0
+
     def embed(self, text: str) -> list[float]:
         # "ai" ovunque nel testo (dopo il prefisso "clustering:" degli embedding).
         return [1.0, 0.0] if "ai" in text.lower() else [0.0, 1.0]
+
+    def embed_many(self, texts: list[str]) -> list[list[float] | None]:
+        self.chiamate += 1
+        return [self.embed(text) for text in texts]
 
 
 class ExplodingSource:
@@ -98,6 +107,77 @@ def test_pipeline_creates_items_ideas_scores_and_topics(session: Session) -> Non
     assert run.n_ideas_proposed + run.n_ideas_processed == 2
     assert session.exec(select(Topic)).all()  # topic creati
     assert session.exec(select(TopicStat)).all()  # fotografia per i trend
+
+
+def test_embeddings_are_asked_in_one_batch(session: Session) -> None:
+    """La fase di embedding è una richiesta, non una per item.
+
+    Era il costo fisso per item: un round-trip HTTP e un commit ciascuno, pagati
+    anche quando il resto del lavoro veniva dalla cache.
+    """
+    embedder = FakeEmbedder()
+    items = [
+        Item(source="hn", external_id=str(n), title=f"ai tool {n}") for n in range(12)
+    ]
+    run_pipeline(
+        session,
+        _config(),
+        Settings(),
+        sources=[FakeSource(items)],
+        ollama=FakeOllama(),
+        embedder=embedder,
+    )
+
+    assert embedder.chiamate == 1
+    assert all(item.embedding_json for item in session.exec(select(Item)).all())
+
+
+def test_items_already_embedded_are_not_asked_again(session: Session) -> None:
+    """Un secondo run non ripaga gli embedding degli item che ce l'hanno già."""
+    items = [Item(source="hn", external_id="1", title="ai tool")]
+    _run(session, items)
+
+    secondo = FakeEmbedder()
+    run_pipeline(
+        session,
+        _config(),
+        Settings(),
+        sources=[FakeSource([Item(source="hn", external_id="1", title="ai tool")])],
+        ollama=FakeOllama(),
+        embedder=secondo,
+    )
+    # Nessun item nuovo da embeddare: nessuna richiesta.
+    assert secondo.chiamate == 0
+
+
+def test_the_run_survives_an_embedder_that_gives_nothing(session: Session) -> None:
+    """Senza vettori il run continua: ogni item resta un'idea a sé, come prima."""
+
+    class MutoEmbedder:
+        unavailable = False
+        settings = Settings()
+
+        def embed_many(self, texts: list[str]) -> list[list[float] | None]:
+            return [None] * len(texts)
+
+    run = run_pipeline(
+        session,
+        _config(),
+        Settings(),
+        sources=[
+            FakeSource(
+                [
+                    Item(source="hn", external_id="1", title="ai tool"),
+                    Item(source="hn", external_id="2", title="ai tool"),
+                ]
+            )
+        ],
+        ollama=FakeOllama(),
+        embedder=MutoEmbedder(),
+    )
+
+    assert run.status == RunStatus.DONE
+    assert len(session.exec(select(Idea)).all()) == 2  # nessuna fusione, nessun crash
 
 
 def test_pipeline_records_progress_and_source_stats(session: Session) -> None:

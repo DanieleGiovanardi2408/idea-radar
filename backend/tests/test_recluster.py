@@ -13,6 +13,7 @@ from app.db import init_db
 from app.llm import IdeaInsight
 from app.models import Idea, Item, Topic
 from app.pipeline import recluster_topics, run_pipeline
+from fakes import EmbedManyMixin
 
 
 class FakeSource:
@@ -31,7 +32,7 @@ class FakeOllama:
         return "topic"
 
 
-class FakeEmbedder:
+class FakeEmbedder(EmbedManyMixin):
     """Due vettori a coseno 0.8: stanno insieme sotto soglia 0.5, separati sotto 0.95."""
 
     unavailable = False

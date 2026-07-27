@@ -285,3 +285,16 @@ lifecycle:
   # ma resta interrogabile (status=archived) e torna in vita da sola se un
   # item nuovo le appartiene.
   archive_after_days: 14
+
+throughput:
+  # Quanti testi per richiesta di embedding. `/api/embed` di Ollama accetta una
+  # lista e risponde nello stesso ordine: il modello lavora comunque in
+  # sequenza, quindi qui si risparmiano latenza e overhead HTTP, non calcolo —
+  # su un run da 280 item nuovi sono 280 richieste che diventano 9. Metti 1 per
+  # tornare a una richiesta per item.
+  embed_batch_size: 32
+  # Secondi minimi tra due scritture della fase sul DB. Il Monitor la interroga
+  # ogni 2s, quindi scrivere più spesso non si vede: serve solo a evitare
+  # decine di transazioni al secondo quando gli insight arrivano dalla cache e
+  # gli item scorrono veloci. 0 = scrivi a ogni item, come prima.
+  progress_min_seconds: 1

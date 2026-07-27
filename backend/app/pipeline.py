@@ -7,6 +7,7 @@ permette al monitor di mostrare l'avanzamento invece di una barra finta.
 import logging
 from collections.abc import Callable
 from datetime import datetime
+from time import monotonic
 from typing import NamedTuple
 
 from sqlmodel import Session, select
@@ -20,7 +21,7 @@ from app.clustering import (
 )
 from app.config import Settings, get_settings
 from app.db import get_session, init_db, upsert_item
-from app.embeddings import OllamaEmbedder, centroid, embed_item
+from app.embeddings import OllamaEmbedder, centroid, embed_items
 from app.healing import heal_ideas
 from app.lifecycle import archive_stale_ideas
 from app.llm import IdeaInsight, OllamaClient, generate_insight, heuristic_insight
@@ -50,6 +51,32 @@ def _progress(session: Session, run: Run, **fields) -> None:
         setattr(run, key, value)
     session.add(run)
     session.commit()
+
+
+class _ProgressThrottle:
+    """Scrive l'avanzamento del ciclo, ma non più spesso del necessario.
+
+    Il Monitor lo legge dal DB e lo interroga ogni 2s: scrivere una transazione
+    per item è utile quando un item costa secondi (LLM) e puro spreco quando ne
+    passano venti al secondo perché gli insight arrivano dalla cache. La
+    scrittura finale di una fase passa da ``force`` e non salta mai, così l'ultimo
+    stato visibile è quello vero.
+    """
+
+    def __init__(self, min_seconds: float) -> None:
+        self._min_seconds = max(0.0, min_seconds)
+        self._last = 0.0
+
+    def maybe(self, session: Session, run: Run, **fields) -> None:
+        now = monotonic()
+        if self._min_seconds and now - self._last < self._min_seconds:
+            return
+        self._last = now
+        _progress(session, run, **fields)
+
+    def force(self, session: Session, run: Run, **fields) -> None:
+        self._last = monotonic()
+        _progress(session, run, **fields)
 
 
 def _collect(
@@ -189,6 +216,36 @@ def _cached_insight(session: Session, idea: Idea) -> IdeaInsight | None:
     )
 
 
+def _embed_phase(
+    session: Session,
+    run: Run,
+    collected: list[Item],
+    embedder: OllamaEmbedder,
+    on_progress: Callable[[str], None] | None,
+) -> None:
+    """Embedding di tutti gli item che non ce l'hanno, in un colpo e un commit.
+
+    Gli item già in archivio con embedding non si ricalcolano: il prefisso di
+    task è lo stesso, quindi il vettore vecchio è ancora confrontabile. Un
+    fallimento non è fatale — chi resta senza vettore diventa un'idea a sé,
+    esattamente come prima.
+    """
+    da_fare = [item for item in collected if item.embedding_json is None]
+    if not da_fare:
+        return
+    _progress(session, run, phase=f"embedding ({len(da_fare)} item)")
+    if on_progress is not None:
+        on_progress(f"embedding di {len(da_fare)} item…")
+
+    vectors = embed_items(da_fare, embedder)
+    for item in da_fare:
+        vector = vectors.get(item.id) if item.id is not None else None
+        if vector is not None:
+            item.embedding_json = vector
+            session.add(item)
+    session.commit()
+
+
 def run_pipeline(
     session: Session,
     config: AppConfig,
@@ -212,9 +269,18 @@ def run_pipeline(
 
     try:
         ollama = ollama or OllamaClient(settings)
-        embedder = embedder or OllamaEmbedder(settings)
+        embedder = embedder or OllamaEmbedder(
+            settings, batch_size=config.throughput.embed_batch_size
+        )
 
         collected = _collect(session, run, config, settings, sources)
+
+        # Gli embedding si chiedono tutti insieme, prima del ciclo: sono
+        # indipendenti tra loro e da tutto il resto, quindi non c'è motivo di
+        # pagare un round-trip (e una transazione) per item come faceva la
+        # versione a un item per volta.
+        _embed_phase(session, run, collected, embedder, on_progress)
+
         if on_progress is not None:
             on_progress(f"raccolti {len(collected)} item, genero gli insight…")
 
@@ -222,19 +288,13 @@ def run_pipeline(
         # item lo riusa, invece di ricaricare e rinormalizzare tutte le idee.
         idea_index = IdeaIndex(session)
 
+        avanzamento = _ProgressThrottle(config.throughput.progress_min_seconds)
         for index, item in enumerate(collected, start=1):
-            _progress(
+            avanzamento.maybe(
                 session, run, phase=f"analisi idee ({index}/{len(collected)})"
             )
             if on_progress is not None:
                 on_progress(f"insight {index}/{len(collected)}")
-            if item.embedding_json is None:
-                vector = embed_item(item, embedder)
-                if vector is not None:
-                    item.embedding_json = vector
-                    session.add(item)
-                    session.commit()
-
             idea = attach_item_to_idea(
                 session,
                 item,
@@ -297,7 +357,9 @@ def run_pipeline(
 
         if on_progress is not None:
             on_progress("raggruppo in topic…")
-        _progress(session, run, phase="raggruppamento in topic")
+        # `force`: il cambio di fase non si salta mai, anche se l'ultimo item è
+        # appena passato dal throttle.
+        avanzamento.force(session, run, phase="raggruppamento in topic")
         assign_ideas_to_topics(
             session,
             config.clustering.topic_threshold,

@@ -40,6 +40,19 @@ In ordine di urgenza:
 1. **Scalabilità clustering** — `attach_item_to_idea` è O(n²) in Python puro (`clustering.py:57`), e ogni item ricalcola similarità contro tutte le idee. Primo passo economico: vettorizzare con numpy (matrice centroidi in RAM, un `argmax` per item). Se il DB cresce oltre ~10⁴ idee: `sqlite-vec` come indice ANN, restando su SQLite.
 2. **Query in SQL** — `latest_scores()` carica tutti gli Score in memoria (`queries.py:10`) e `/ideas` ordina e taglia in Python (`api.py:228-240`). Spostare ordinamento, filtri e paginazione (offset o cursor) in SQL. Serve anche al frontend (§4).
 3. **Throughput dei run** — LLM ed embedding sono seriali, una chiamata HTTP per item, più commit annidati per item (`pipeline.py:257`, `clustering.py:27`). Interventi: batch embedding (endpoint `/api/embed` di Ollama accetta liste), commit per fase invece che per item, piccolo pool (2–3 worker) per gli insight LLM.
+
+   **Aggiornamento 27 luglio — fatto in parte, e il pool va escluso.** Batch
+   embedding: fatto (`throughput.embed_batch_size`, 280 richieste diventate 9).
+   Commit: la fase di embedding ne fa uno invece di uno per item e la scrittura
+   dell'avanzamento ha un throttle temporale; i commit degli score restano per
+   item **di proposito**, perché accorparli terrebbe la transazione di scrittura
+   decine di secondi e con `busy_timeout=30000` un `PATCH /ideas/{id}` scadrebbe
+   durante un run. Il pool di worker è stato *misurato* prima di scriverlo: due
+   richieste identiche a Ollama costano 15,7s in serie e 16,7s in parallelo —
+   le accoda, e due slot su un 7B si dividerebbero comunque la stessa banda di
+   memoria. Non c'è niente da parallelizzare lato client. Quel che resta del
+   tempo è latenza per chiamata (~7s): l'unica leva vera è §3.6, un modello di
+   insight più piccolo, che è una scelta di qualità e non di codice.
 4. **Healing dei singleton** — un item assegnato a un'idea non viene mai ri-aggregato (`clustering.py:49`): i run degradati lasciano singleton permanenti. Aggiungere `idea-radar heal`: individua idee singleton con embedding, prova a fonderle con idee vicine sopra `idea_threshold`. Complementare al preflight già esistente.
 5. **Igiene** — allineare i default di `appconfig.py:31` (0.82/0.62) ai valori tarati di config.yaml (0.75/0.70); pianificare la migrazione a timestamp tz-aware (`models.py:10`) prima che nuovo codice erediti la trappola.
 

@@ -22,6 +22,7 @@ from app.llm import IdeaInsight
 from app.models import Difficulty, Item, ItemStat, Score, utcnow
 from app.pipeline import run_pipeline
 from app.scoring import score_item
+from fakes import EmbedManyMixin
 
 
 def _cfg() -> AppConfig:
@@ -209,7 +210,7 @@ class FakeOllama:
         return "topic"
 
 
-class FakeEmbedder:
+class FakeEmbedder(EmbedManyMixin):
     unavailable = False
 
     def embed(self, text: str) -> list[float]:

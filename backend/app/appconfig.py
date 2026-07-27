@@ -116,6 +116,27 @@ class SchedulingConfig(BaseModel):
     require_ollama: bool = True
 
 
+class ThroughputConfig(BaseModel):
+    """Quanto lavoro per round-trip. Non cambia i risultati, solo i tempi."""
+
+    # Testi per richiesta di embedding (`/api/embed` accetta una lista). Il
+    # modello li elabora comunque in sequenza: qui si risparmiano latenza e
+    # overhead HTTP, non calcolo. Alzarlo oltre il centinaio non serve e rende i
+    # timeout più probabili; 1 ripristina il comportamento una-richiesta-per-item.
+    embed_batch_size: int = 32
+    # Secondi minimi tra due scritture dell'avanzamento. Il Monitor legge la
+    # fase dal DB, quindi ogni aggiornamento è una transazione: a item lenti
+    # (LLM) non si nota, ma quando gli insight arrivano dalla cache si scriveva
+    # il DB decine di volte al secondo per cambiare una stringa. 0 = scrivi
+    # sempre, come prima.
+    #
+    # NB: i commit degli score restano uno per item, di proposito. Accorparli
+    # allungherebbe la transazione di scrittura a decine di secondi e con
+    # `busy_timeout=30000` (db.py) un PATCH dell'API — pin, dismiss, nota —
+    # arriverebbe a scadere mentre un run gira.
+    progress_min_seconds: float = 1.0
+
+
 class LifecycleConfig(BaseModel):
     """Ciclo di vita delle idee: l'archivio tiene il radar fresco."""
 
@@ -164,6 +185,7 @@ class AppConfig(BaseModel):
     clustering: ClusteringConfig = Field(default_factory=ClusteringConfig)
     scheduling: SchedulingConfig = Field(default_factory=SchedulingConfig)
     lifecycle: LifecycleConfig = Field(default_factory=LifecycleConfig)
+    throughput: ThroughputConfig = Field(default_factory=ThroughputConfig)
 
     def enabled_sources(self) -> list[SourceConfig]:
         return [s for s in self.sources if s.enabled]

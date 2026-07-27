@@ -13,6 +13,7 @@ from app.db import init_db
 from app.llm import IdeaInsight
 from app.models import Idea, IdeaStatus, Item
 from app.pipeline import run_pipeline
+from fakes import EmbedManyMixin
 
 
 class FakeSource:
@@ -31,7 +32,7 @@ class FakeOllama:
         return "topic"
 
 
-class ConstEmbedder:
+class ConstEmbedder(EmbedManyMixin):
     """Stesso vettore per tutti: due item finiscono nella STESSA idea."""
 
     unavailable = False

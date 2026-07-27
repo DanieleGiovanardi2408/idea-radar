@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, create_engine
 
 from app.api import app, get_db
+from app.config import Settings
 from app.db import init_db
 from app.models import Idea, IdeaStatus, Item, Run, RunStatus, Score, Topic, TopicStat
 
@@ -219,8 +220,18 @@ def test_rhythm_ignores_signals_older_than_the_window(
     assert client.get("/rhythm?days=90").json()["n_items"] == 1
 
 
-def test_videos_endpoint_says_when_the_key_is_missing(client: TestClient) -> None:
-    """Il pannello si spegne spiegandosi, non con un 500."""
+def test_videos_endpoint_says_when_the_key_is_missing(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Il pannello si spegne spiegandosi, non con un 500.
+
+    La chiave va azzerata a mano: ``get_settings`` legge ``backend/.env``, quindi
+    su una macchina che la chiave ce l'ha davvero questo test verificava il
+    percorso opposto a quello che dichiara — e infatti falliva.
+    """
+    monkeypatch.setattr(
+        "app.api.get_settings", lambda: Settings(youtube_api_key="")
+    )
     data = client.get("/videos").json()
 
     assert data["configured"] is False

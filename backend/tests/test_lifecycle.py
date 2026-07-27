@@ -20,6 +20,7 @@ from app.llm import IdeaInsight
 from app.models import Idea, IdeaStatus, Item, utcnow
 from app.pipeline import run_pipeline
 from app.queries import top_ideas
+from fakes import EmbedManyMixin
 
 
 class FakeSource:
@@ -38,7 +39,7 @@ class FakeOllama:
         return "topic"
 
 
-class FakeEmbedder:
+class FakeEmbedder(EmbedManyMixin):
     unavailable = False
 
     def embed(self, text: str) -> list[float]:
