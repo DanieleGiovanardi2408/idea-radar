@@ -26,6 +26,15 @@ sources:
     type: github
     limit: 30        # quanti repo tenere, presi dal meglio di tutte le keyword
     enabled: true
+    # Il ritmo delle richieste NON si configura: si deriva dal limite vero della
+    # Search API — 10 al minuto senza token, 30 con GITHUB_TOKEN in .env — perché
+    # una costante scelta a mano è come i 403 del run 56 sono nati (12 richieste
+    # a 0,5s di distanza, le ultime tre rifiutate, tre fasce d'età perse).
+    # Qui si configura solo il tetto a una singola attesa quando il limite arriva
+    # comunque: GitHub dice quando riprovare, ma se il reset è lontano mezz'ora
+    # il run non deve restare appeso — oltre il tetto si rinuncia alla query e la
+    # perdita compare nel Monitor.
+    max_wait_seconds: 90
     # Il vincolo che rende utile la fonte: si cercano repo NATI di recente,
     # ordinati per stelle. Senza, "ordinato per stelle" vuol dire freeCodeCamp e
     # tensorflow — i più famosi del mondo, cioè mercati chiusi. In 51 run la

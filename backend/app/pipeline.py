@@ -138,9 +138,16 @@ def _collect(
                 new_here += 1
             collected.append(stored)
 
+        # Una fonte può raccontare com'è andata oltre al conteggio: quante
+        # richieste, quante perse. Senza questo, le tre fasce che GitHub ha
+        # rifiutato nel run 56 restavano solo in un log che nessuno legge.
+        report = getattr(source, "last_report", None)
+
         fetched_total += len(fetched)
         new_total += new_here
         stats[name] = {"fetched": len(fetched), "new": new_here}
+        if report:
+            stats[name].update(report)
         _progress(
             session,
             run,

@@ -44,6 +44,12 @@ class SourceConfig(BaseModel):
     # Solo per type: stackexchange/npm — età massima (giorni) di ciò che conta
     # come "nuovo". Oltre, non è più un segnale emergente.
     max_age_days: int = 60
+    # Tetto a UNA singola attesa quando la fonte incontra un rate limit. GitHub
+    # dice sempre quando riprovare (Retry-After o x-ratelimit-reset) e aspettare
+    # è meglio che perdere una fascia d'età intera; ma se il reset è lontano
+    # mezz'ora, un run non deve restare appeso: oltre il tetto si rinuncia a
+    # quella query e la perdita finisce nel report del Monitor.
+    max_wait_seconds: float = 90.0
     # Tetto alle keyword interrogate, per le fonti che costano una richiesta a
     # keyword. 0 = nessun tetto. I profili si alternano, quindi un tetto basso
     # riduce la profondità di ogni tema senza farne sparire nessuno.

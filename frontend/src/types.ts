@@ -103,7 +103,20 @@ export type RunOut = {
   n_ideas_total: number
   n_topics: number
   error: string | null
-  sources: Record<string, { fetched: number; new: number; error?: string }> | null
+  /* `requests`/`failed_queries` li riporta solo chi paga un rate limit (oggi
+     GitHub): dicono che una fonte è riuscita *a metà*, cosa che prima nessun
+     numero rappresentava — le fasce d'età perse contavano come successo. */
+  sources: Record<
+    string,
+    {
+      fetched: number
+      new: number
+      error?: string
+      requests?: number
+      failed_queries?: number
+      waited_seconds?: number
+    }
+  > | null
 }
 
 export type StatsOut = {

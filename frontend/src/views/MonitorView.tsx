@@ -170,6 +170,17 @@ function SourceOutcomes({ run }: { run: RunOut }) {
               <span className={source.new > 0 ? 'text-phosphor/80' : ''}>
                 {source.new} nuovi
               </span>
+              {/* Una fonte può riuscire "a metà": GitHub perdeva fasce d'età
+                  intere per rate limit e il run le contava come successo,
+                  perché nessun numero le rappresentava. */}
+              {!!source.failed_queries && (
+                <span
+                  className="ml-1.5 text-flare"
+                  title={`${source.failed_queries} query su ${source.requests} rifiutate dalla fonte: quelle fasce non hanno portato nulla`}
+                >
+                  · {source.failed_queries}/{source.requests} perse
+                </span>
+              )}
             </span>
           )}
         </li>

@@ -45,12 +45,24 @@ def _repo(repo_id: int, stars: int, name: str = "tizio/progetto") -> dict:
     }
 
 
-def _source(handler, **cfg_overrides) -> GitHubSource:
+def _source(handler, sleeps: list[float] | None = None, **cfg_overrides) -> GitHubSource:
+    """La fonte con un finto `sleep`.
+
+    Il ritmo tra le richieste è ora derivato dal limite di GitHub (6,6s senza
+    token): con la `time.sleep` vera questo file durerebbe minuti. La lista
+    `sleeps`, se passata, registra le attese e le rende verificabili.
+    """
+    registrate = sleeps if sleeps is not None else []
     return GitHubSource(
         _cfg(**cfg_overrides),
         _app_config(),
-        Settings(),
+        # Token esplicitamente vuoto, non `Settings()`: quest'ultimo legge
+        # backend/.env, quindi il giorno in cui il token c'è i test sul ritmo
+        # anonimo misurerebbero il ritmo autenticato e fallirebbero per un
+        # motivo che non ha niente a che vedere con il codice.
+        Settings(github_token=""),
         client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleeper=registrate.append,
     )
 
 
@@ -118,8 +130,9 @@ def test_profiles_become_separate_query_groups() -> None:
     GitHubSource(
         _cfg(created_windows=[90]),
         config,
-        Settings(),
+        Settings(github_token=""),
         client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleeper=lambda _s: None,
     ).fetch()
 
     assert len(seen) == 2  # due profili, una fascia
@@ -168,11 +181,103 @@ def test_a_failing_query_does_not_kill_the_others() -> None:
     items = GitHubSource(
         _cfg(created_windows=[540]),
         config,
-        Settings(),
+        Settings(github_token=""),
         client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleeper=lambda _s: None,
     ).fetch()
 
     assert [i.external_id for i in items] == ["7"]
+
+
+def test_the_pace_comes_from_the_real_limit_not_from_a_constant() -> None:
+    """Senza token GitHub dà 10 richieste/minuto, col token 30.
+
+    Nel run 56 il collector ne faceva 12 con 0,5s di pausa fissa: le prime dieci
+    passavano e le ultime tre tornavano 403 — tre fasce d'età perse, e il token
+    era vuoto. Il ritmo ora si deriva dal limite, quindi il 403 non arriva.
+    """
+    attese: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"items": []})
+
+    anonima = _source(handler, sleeps=attese, created_windows=[90, 270, 540])
+    assert anonima.authenticated is False
+    anonima.fetch()
+
+    # Due pause per tre richieste, ognuna sopra i 6 secondi (60/10 col margine).
+    assert len(attese) == 2
+    assert all(a >= 6.0 for a in attese)
+
+    con_token: list[float] = []
+    autenticata = GitHubSource(
+        _cfg(created_windows=[90, 270, 540]),
+        _app_config(),
+        Settings(github_token="finto"),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleeper=con_token.append,
+    )
+    assert autenticata.authenticated is True
+    autenticata.fetch()
+
+    # Col token il ritmo è tre volte più rapido: 60/30 invece di 60/10.
+    assert len(con_token) == 2
+    assert all(1.9 <= a <= 2.5 for a in con_token)
+
+
+def test_a_rate_limit_is_waited_out_instead_of_losing_the_band() -> None:
+    """GitHub dice sempre quando riprovare: prima quell'header si ignorava."""
+    attese: list[float] = []
+    chiamate = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        chiamate["n"] += 1
+        if chiamate["n"] == 1:
+            return httpx.Response(
+                403,
+                headers={"retry-after": "7"},
+                json={"message": "rate limit exceeded"},
+            )
+        return httpx.Response(200, json={"items": [_repo(1, 200, "salvato/uno")]})
+
+    src = _source(handler, sleeps=attese, created_windows=[90])
+    items = src.fetch()
+
+    assert [i.title for i in items] == ["salvato/uno"]  # la fascia è salva
+    assert 7.0 in attese  # ha aspettato quello che GitHub ha chiesto
+    assert src.last_report["failed_queries"] == 0
+
+
+def test_the_wait_respects_the_configured_ceiling() -> None:
+    """Un reset lontano mezz'ora non deve appendere il run."""
+    attese: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403, headers={"retry-after": "1800"}, json={"message": "rate limit"}
+        )
+
+    src = _source(handler, sleeps=attese, created_windows=[90], max_wait_seconds=30)
+    src.fetch()
+
+    assert max(attese) == 30  # il tetto, non i 1800 chiesti
+    assert src.last_report["failed_queries"] == 1  # e la perdita è dichiarata
+
+
+def test_what_was_lost_ends_up_in_the_report() -> None:
+    """Una fascia persa in silenzio è il motivo per cui nessuno se ne accorgeva.
+
+    Il report finisce in `sources_json` del run, quindi nel Monitor.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"message": "rate limit"})
+
+    src = _source(handler, created_windows=[90, 270])
+    src.fetch()
+
+    assert src.last_report["requests"] == 2
+    assert src.last_report["failed_queries"] == 2
+    assert src.last_report["waited_seconds"] > 0
 
 
 def test_the_same_repo_is_not_collected_twice() -> None:
