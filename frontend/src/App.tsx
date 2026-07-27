@@ -148,8 +148,8 @@ function App() {
                 Idea <span className="text-phosphor">Radar</span>
               </h1>
               <p className="mt-0.5 text-sm text-slate-500">
-                Segnali da Hacker News, GitHub e riviste — ciò che sale e non è
-                ancora saturo.
+                Segnali da Hacker News, GitHub, Hugging Face, Stack Exchange,
+                npm, arXiv e 20 feed — ciò che sale e non è ancora saturo.
               </p>
             </div>
           </div>

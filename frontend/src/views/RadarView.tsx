@@ -125,7 +125,9 @@ export function RadarView({ onSelect }: { onSelect: (id: number) => void }) {
           {(
             [
               ['proposed', `Sopra soglia (${proposedCount})`],
-              ['all', `Tutte (${ideas.length})`],
+              // `/ideas` è paginato: questo è il numero caricato, non il totale
+              // in archivio. Chiamarlo "Tutte" era una piccola bugia.
+              ['all', `Caricate (${ideas.length})`],
             ] as [Filter, string][]
           ).map(([value, label]) => (
             <button
