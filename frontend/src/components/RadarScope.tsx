@@ -7,7 +7,7 @@
  * sopra: la sincronia è solo un animation-delay proporzionale all'angolo.
  */
 
-import { useMemo, useState, type CSSProperties } from 'react'
+import { useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { IdeaOut } from '../types'
 
 const SIZE = 440
@@ -63,6 +63,54 @@ export function RadarScope({
   const [hover, setHover] = useState<Blip | null>(null)
   const proposedCount = ideas.filter((i) => i.status === 'proposed').length
 
+  /* Da tastiera il quadrante è UN passaggio di Tab, non sessanta.
+   *
+   * I blip sono le stesse idee della lista qui sotto, che è già navigabile: dare
+   * a ognuno la sua fermata significherebbe far premere Tab sessanta volte per
+   * scavalcare un grafico e rileggere cose già lette. Il pattern giusto per un
+   * gruppo di elementi omogenei è il "roving tabindex": si entra una volta, si
+   * scorre con le frecce, si esce con Tab. */
+  const [attivo, setAttivo] = useState(0)
+  const blipRefs = useRef<(SVGGElement | null)[]>([])
+
+  const vaiA = (indice: number) => {
+    if (blips.length === 0) return
+    // Ciclico: dall'ultimo si torna al primo, come in un menu.
+    const prossimo = (indice + blips.length) % blips.length
+    setAttivo(prossimo)
+    blipRefs.current[prossimo]?.focus()
+  }
+
+  const onBlipKeyDown = (e: React.KeyboardEvent, indice: number, id: number) => {
+    switch (e.key) {
+      case 'ArrowRight':
+      case 'ArrowDown':
+        e.preventDefault()
+        vaiA(indice + 1)
+        break
+      case 'ArrowLeft':
+      case 'ArrowUp':
+        e.preventDefault()
+        vaiA(indice - 1)
+        break
+      case 'Home':
+        e.preventDefault()
+        vaiA(0)
+        break
+      case 'End':
+        e.preventDefault()
+        vaiA(blips.length - 1)
+        break
+      case 'Enter':
+      case ' ':
+        // Su un <g> non c'è attivazione implicita: Space e Enter vanno gestiti,
+        // e Space va fermato o la pagina scorre sotto il dito.
+        e.preventDefault()
+        onSelect(id)
+        break
+    }
+  }
+
   if (ideas.length === 0) return null
 
   return (
@@ -81,7 +129,17 @@ export function RadarScope({
 
       <div className="mx-auto max-w-[560px] px-4 pt-6 pb-2">
         <div className="relative">
-          <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="block w-full">
+          <svg
+            viewBox={`0 0 ${SIZE} ${SIZE}`}
+            className="block w-full"
+            role="group"
+            /* Il conteggio deve descrivere quello che è DAVVERO sul quadrante: i
+               blip sono tappati a MAX_BLIPS, mentre `proposedCount` conta tutte
+               le idee, e messi insieme producevano "60 idee, 86 sopra soglia". */
+            aria-label={`Quadrante: ${blips.length} idee, ${
+              blips.filter((b) => b.proposed).length
+            } sopra soglia. Frecce per scorrere i blip, Invio per aprire.`}
+          >
           <defs>
             <linearGradient id="sweep-fill" gradientUnits="userSpaceOnUse"
               x1={CENTER - 118} y1={CENTER - 145} x2={CENTER} y2={CENTER - 170}>
@@ -167,10 +225,19 @@ export function RadarScope({
           />
 
           {/* blip */}
-          {blips.map((blip) => (
+          {blips.map((blip, indice) => (
             <g
               key={blip.idea.id}
-              className="cursor-pointer"
+              ref={(el) => {
+                blipRefs.current[indice] = el
+              }}
+              className="cursor-pointer focus:outline-none"
+              role="button"
+              // Una sola fermata di Tab per tutto il gruppo (vedi `vaiA`).
+              tabIndex={indice === attivo ? 0 : -1}
+              aria-label={`${blip.idea.label} — punteggio ${Math.round(
+                blip.idea.composite * 100,
+              )}${blip.proposed ? ', sopra soglia' : ''}`}
               style={
                 {
                   animation: `blip-flash ${SWEEP_SECONDS}s linear infinite`,
@@ -180,8 +247,31 @@ export function RadarScope({
               }
               onMouseEnter={() => setHover(blip)}
               onMouseLeave={() => setHover(null)}
+              // Il tooltip segue anche il focus: un'informazione che appare solo
+              // al passaggio del mouse non esiste per chi naviga da tastiera.
+              onFocus={() => {
+                setAttivo(indice)
+                setHover(blip)
+              }}
+              onBlur={() => setHover(null)}
+              onKeyDown={(e) => onBlipKeyDown(e, indice, blip.idea.id)}
               onClick={() => onSelect(blip.idea.id)}
             >
+              {/* Indicatore di focus: sostituisce l'outline del browser, che su
+                  un <g> dentro un SVG animato disegna un rettangolo fuori
+                  registro. Vale anche per il mouse, e serve soprattutto alla
+                  tastiera, dove senza questo non si capisce dove si è. */}
+              {hover?.idea.id === blip.idea.id && (
+                <circle
+                  cx={blip.x}
+                  cy={blip.y}
+                  r="11"
+                  fill="none"
+                  stroke="var(--color-phosphor)"
+                  strokeWidth="1.5"
+                  strokeDasharray="3 2"
+                />
+              )}
               {blip.proposed && (
                 <circle
                   cx={blip.x}

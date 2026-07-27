@@ -290,10 +290,23 @@ export function AreaSpark({
 
   return (
     <div className="relative" style={{ width, height }}>
+      {/* `role="img"` con un nome, non un widget navigabile: i valori di questa
+          curva sono già scritti in chiaro accanto (delta e composite nel Trend,
+          "su N run" nel dossier), quindi renderla percorribile punto per punto
+          aggiungerebbe fermate di Tab per rileggere le stesse cifre. Il tooltip
+          al passaggio del mouse resta una comodità, non l'unica via al dato. */}
       <svg
         ref={svgRef}
         width={width}
         height={height}
+        role="img"
+        aria-label={`Andamento su ${values.length} punti: da ${
+          format ? format(values[0], 0) : values[0]
+        } a ${
+          format
+            ? format(values[values.length - 1], values.length - 1)
+            : values[values.length - 1]
+        }`}
         onMouseMove={onMove}
         onMouseLeave={() => setHover(null)}
         className="overflow-visible"

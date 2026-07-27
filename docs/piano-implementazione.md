@@ -77,6 +77,19 @@ In ordine di urgenza:
 4. **Drill-down Trend → Topic** — i Panel in `TrendsView.tsx:102` sono `interactive` senza handler: click sul trend → topic aperto in TopicsView (con routing diventa un link).
 5. **Storico run in Monitor** — `api.runs()` è implementato e mai usato: lista run completa con dettaglio.
 6. **A11y** — focus trap + restore nel drawer, `role="tablist"` sulla nav, blip del radar raggiungibili da tastiera, tooltip su focus oltre che hover.
+
+   **Aggiornamento 27 luglio — fatto, tranne il tablist che non va fatto.**
+   Trappola del focus: `useFocusTrap`, con ripristino su chi aveva il focus.
+   Blip: roving tabindex — una sola fermata di Tab, frecce per scorrere, Invio
+   per aprire, anello di focus visibile e tooltip anche al focus. Sessanta
+   fermate di Tab per un grafico i cui dati sono nella lista sotto sarebbero
+   state un peggioramento, non un'accessibilità. `role="tablist"` **no**: quella
+   riga è stata scritta quando la nav era `useState<View>`; ora i tab sono link
+   con un URL e una pagina propria, e marcarli come tab farebbe perdere
+   l'informazione che sono link imponendo la navigazione a frecce di un widget
+   composito. Il pattern giusto è `<nav aria-label>` + `aria-current`, che
+   NavLink già emette. Le sparkline sono diventate `role="img"` con un nome, per
+   lo stesso motivo dei blip: i loro numeri sono già scritti accanto.
 7. **Refactor mirati** — estrarre `useRadarData()` e `Nav` da App.tsx; geometria dei blip (`RadarScope.tsx:28-53`) in funzione pura testabile; formatter data unico (oggi triplicato in MonitorView/TrendsView/IdeaDetail); verificare il contratto di `startRun` (`App.tsx:131` legge `res.detail`, il backend risponde 202 con altro body).
 
 ---

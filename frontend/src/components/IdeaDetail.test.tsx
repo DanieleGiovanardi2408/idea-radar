@@ -24,6 +24,20 @@ function open(idea = fakeIdea(), extra: Record<string, unknown> = {}) {
 }
 
 describe('IdeaDetail', () => {
+  it('il Tab resta dentro il dossier, come promette aria-modal', async () => {
+    const user = userEvent.setup()
+    open()
+    await screen.findByRole('button', { name: /pinna in cima/i })
+
+    const dialog = screen.getByRole('dialog')
+    // Si gira tutto il giro: il focus non deve mai finire fuori dal drawer,
+    // altrimenti si naviga la pagina che lo screen reader dichiara assente.
+    for (let giro = 0; giro < 12; giro++) {
+      await user.tab()
+      expect(dialog.contains(document.activeElement)).toBe(true)
+    }
+  })
+
   it('il pin resta cliccabile mentre parte il "visto" automatico', async () => {
     // Regressione: pin, scarta e "Salva nota" condividevano UNA mutation, e la
     // PATCH `seen: true` all'apertura li disabilitava tutti finché era in volo.

@@ -195,8 +195,15 @@ function App() {
           </div>
         </header>
 
+        {/* Non `role="tablist"`: i tab sono link con un URL e la loro vista è
+            una pagina, non un pannello che vive qui dentro. Marcarli come tab
+            farebbe perdere a chi usa uno screen reader l'informazione che sono
+            link (e imporrebbe la navigazione a frecce di un widget composito).
+            `<nav>` con un nome e l'`aria-current` che NavLink già emette è il
+            pattern corretto da quando il routing è passato agli URL. */}
         <nav
           ref={navRef}
+          aria-label="Viste del radar"
           className="glass view-enter relative mt-6 flex gap-1 rounded-2xl p-1.5"
         >
           {/* indicatore scorrevole */}

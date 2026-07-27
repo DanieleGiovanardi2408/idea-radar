@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 import { useIdea, useMarkSeen, usePatchIdea } from '../hooks/useRadarData'
 import type { IdeaDetailOut } from '../types'
 import {
@@ -110,6 +111,11 @@ export function IdeaDetail({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  // `aria-modal` dice che fuori non c'è nulla: la trappola lo rende vero anche
+  // per il Tab, e restituisce il focus alla card da cui si è arrivati.
+  const trappola = useRef<HTMLDivElement>(null)
+  useFocusTrap(trappola)
+
   const history = idea?.history ?? []
   const sparkTone =
     history.length > 1
@@ -121,6 +127,7 @@ export function IdeaDetail({
 
   return (
     <div
+      ref={trappola}
       className="fixed inset-0 z-50 flex justify-end"
       role="dialog"
       aria-modal="true"
