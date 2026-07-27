@@ -15,12 +15,17 @@ export function makeClient(): QueryClient {
   })
 }
 
-export function renderWithProviders(ui: ReactElement, client = makeClient()) {
+/** `route` serve a chi testa il routing: parte da un indirizzo diverso da "/". */
+export function renderWithProviders(
+  ui: ReactElement,
+  client = makeClient(),
+  route = '/',
+) {
   return {
     client,
     ...render(
       <QueryClientProvider client={client}>
-        <MemoryRouter>{ui}</MemoryRouter>
+        <MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>
       </QueryClientProvider>,
     ),
   }

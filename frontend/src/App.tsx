@@ -241,7 +241,15 @@ function App() {
           <div key={pathname} className="view-enter">
             {/* La sala controllo esiste solo sul Radar: le altre viste sono
                 liste, e stringerle in una colonna centrale le peggiora. */}
-            {onRadar ? (
+            {/* La radice si normalizza su /radar prima di disegnare qualsiasi
+                cosa. Senza questo passaggio `onRadar` era vero anche su "/", ma
+                nessuna route interna corrispondeva: chi apriva l'indirizzo nudo
+                trovava la sala controllo con la colonna centrale vuota, il tab
+                non evidenziato e l'indicatore a larghezza zero (i tab sono
+                indicizzati per pathname, e "/" non è tra loro). */}
+            {pathname === '/' ? (
+              <Navigate to="/radar" replace />
+            ) : onRadar ? (
               /* Le colonne laterali sono larghe perché il loro contenuto lo
                  richiede: una heatmap di 7×24 celle e un player video a 16:9
                  sotto i 20rem diventano decorazione illeggibile. */
@@ -251,10 +259,12 @@ function App() {
                 <aside className="order-2 grid gap-4 xl:order-1 xl:sticky xl:top-6 xl:self-start">
                   <TrendingVideos />
                 </aside>
+                {/* Niente <Routes> qui: siamo in questo ramo proprio perché
+                    l'indirizzo è il Radar. Un router annidato da tenere in
+                    sincrono con la condizione qui sopra è la trappola che ha
+                    svuotato la colonna. */}
                 <div className="order-1 min-w-0 xl:order-2">
-                  <Routes>
-                    <Route path="/radar" element={<RadarView onSelect={openIdea} />} />
-                  </Routes>
+                  <RadarView onSelect={openIdea} />
                 </div>
                 <aside className="order-3 grid gap-4 xl:sticky xl:top-6 xl:self-start">
                   <SignalRhythm />
