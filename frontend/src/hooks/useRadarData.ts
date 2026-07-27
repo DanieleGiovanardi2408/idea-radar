@@ -89,6 +89,23 @@ export function useTopicIdeas(topicId: number | null) {
   })
 }
 
+/** Le idee che non stanno in nessun tema, di un profilo o di tutti.
+ *
+ * Da quando un'idea sola non apre un topic sono la maggioranza dell'archivio:
+ * senza un modo per chiederle, la vista Topic ne mostrerebbe una minoranza e
+ * farebbe sparire il resto. `enabled` le chiede solo quando la sezione si apre.
+ */
+export function useUngroupedIdeas(profile: string | null, enabled: boolean) {
+  const running = useIsRunning()
+  return useQuery({
+    queryKey: ['ideas', { ungrouped: true, profile }],
+    queryFn: () =>
+      api.ideas({ ungrouped: true, ...(profile ? { profile } : {}) }),
+    enabled,
+    refetchInterval: liveInterval(running),
+  })
+}
+
 export function useTrends() {
   const running = useIsRunning()
   return useQuery({

@@ -9,6 +9,7 @@ from app.clustering import (
     _refresh_centroid,
     assign_ideas_to_topics,
     attach_item_to_idea,
+    dissolve_single_idea_topics,
     group_indices_by_similarity,
     merge_topics_with_the_same_label,
     sweep_topic_thresholds,
@@ -159,18 +160,71 @@ def test_ideas_group_into_topics(session: Session) -> None:
         attach_item_to_idea(session, item, emb, threshold=0.99)  # niente merge di idee
 
     topics = assign_ideas_to_topics(session, threshold=0.8)
-    assert len(session.exec(select(Topic)).all()) == 2  # tech + orto
+
+    # UN topic, non due: le due idee tech si accoppiano, i pomodori restano
+    # un'idea NON RAGGRUPPATA. Prima ogni orfana si apriva un tema col proprio
+    # titolo, ed è così che 1002 topic ne contenevano 784 da un solo membro.
+    assert len(session.exec(select(Topic)).all()) == 1
+    assert topics
 
     ideas = session.exec(select(Idea)).all()
-    assert all(i.topic_id is not None for i in ideas)
     tech = [i for i in ideas if "pomodori" not in i.label]
+    orto = [i for i in ideas if "pomodori" in i.label]
     assert len({i.topic_id for i in tech}) == 1  # le due tech nello stesso topic
-    assert topics
+    assert tech[0].topic_id is not None
+    assert orto[0].topic_id is None  # nessun tema inventato per lei
+
+
+def test_two_orphans_can_still_open_a_new_theme(session: Session) -> None:
+    """"Un'idea sola non fa un tema" non deve diventare "un tema non nasce".
+
+    Se l'orfana potesse solo entrare in un topic esistente, la PRIMA idea di un
+    tema nuovo resterebbe orfana per sempre e la seconda non troverebbe nessuno
+    ad accoglierla: il radar smetterebbe di scoprire argomenti.
+    """
+    # Primo run: una sola idea, nessun compagno, nessun tema.
+    prima = _item(session, "1", "agenti per il self-hosting", [1.0, 0.0])
+    attach_item_to_idea(session, prima, prima.embedding_json, threshold=0.999)
+    assign_ideas_to_topics(session, threshold=0.8)
+
+    assert session.exec(select(Topic)).all() == []
+    assert session.exec(select(Idea)).one().topic_id is None
+
+    # Run dopo: arriva un'idea vicina. Ora il tema esiste, e contiene entrambe.
+    seconda = _item(session, "2", "self-hosting di agenti AI", [0.97, 0.24])
+    attach_item_to_idea(session, seconda, seconda.embedding_json, threshold=0.999)
+    assign_ideas_to_topics(session, threshold=0.8)
+
+    topic = session.exec(select(Topic)).one()
+    membri = session.exec(select(Idea).where(Idea.topic_id == topic.id)).all()
+    assert len(membri) == 2  # anche la prima, che era rimasta in panchina
+
+
+def test_an_idea_that_loses_its_companions_goes_back_to_ungrouped(
+    session: Session,
+) -> None:
+    """Un tema che si svuota non lascia in piedi un topic da un membro."""
+    for i, vec in enumerate([[1.0, 0.0], [0.97, 0.24]]):
+        item = _item(session, str(i), f"idea {i}", vec)
+        attach_item_to_idea(session, item, vec, threshold=0.999)
+    assign_ideas_to_topics(session, threshold=0.8)
+    assert len(session.exec(select(Topic)).all()) == 1
+
+    # Con una soglia severa la coppia non si tiene più: entrambe tornano
+    # non raggruppate invece di diventare due temi da un'idea.
+    assign_ideas_to_topics(session, threshold=0.999)
+
+    assert all(i.topic_id is None for i in session.exec(select(Idea)).all())
+    # E il topic svuotato non resta come riga fantasma: `/stats` conta le righe,
+    # quindi lasciarlo lì rigonfierebbe il numero dei temi.
+    assert session.exec(select(Topic)).all() == []
 
 
 def test_topic_namer_is_used_and_failures_are_survived(session: Session) -> None:
-    item = _item(session, "1", "agente AI", [1.0, 0.0])
-    attach_item_to_idea(session, item, item.embedding_json, threshold=0.8)
+    # Due idee vicine ma distinte: un topic nasce da una coppia, non da una sola.
+    for external_id, vec in (("1", [1.0, 0.0]), ("2", [0.98, 0.15])):
+        item = _item(session, external_id, f"agente AI {external_id}", vec)
+        attach_item_to_idea(session, item, vec, threshold=0.999)
 
     assign_ideas_to_topics(session, threshold=0.8, namer=lambda labels: "Agenti AI")
     assert session.exec(select(Topic)).one().label == "Agenti AI"
@@ -264,7 +318,12 @@ def test_small_topics_are_not_named_by_the_llm(session: Session) -> None:
     }
     assert len(calls) == 1  # solo il topic da 2 idee
     assert by_size["Nome dal modello"] == 2
-    assert "idea 2" in by_size  # il singleton ha tenuto il titolo dell'idea
+    # La terza idea non ha aperto un tema col proprio titolo: è non raggruppata.
+    assert list(by_size) == ["Nome dal modello"]
+    orfana = session.exec(
+        select(Idea).where(Idea.label == "idea 2", Idea.topic_id == None)  # noqa: E711
+    ).one()
+    assert orfana.topic_id is None
 
 
 def test_unchanged_topics_are_not_renamed(session: Session) -> None:
@@ -373,9 +432,18 @@ def test_topics_named_the_same_are_merged(session: Session) -> None:
     def namer(labels: list[str]) -> str:
         return next(names)
 
-    for i, vec in enumerate([[1.0, 0.0], [0.0, 1.0], [0.5, 0.5]]):
+    # Tre COPPIE, non tre idee sole: da quando un'idea sola non apre un tema,
+    # per avere tre topic distinti servono tre coppie distinte. Dentro la coppia
+    # la similarità è 0.9999 (sopra la soglia dei topic, sotto quella delle idee,
+    # quindi restano idee separate che condividono un tema); tra coppie è ~0.014.
+    coppie = [
+        [[1.0, 0.0, 0.0], [0.9999, 0.0141, 0.0]],
+        [[0.0, 1.0, 0.0], [0.0141, 0.9999, 0.0]],
+        [[0.0, 0.0, 1.0], [0.0, 0.0141, 0.9999]],
+    ]
+    for i, vec in enumerate([v for coppia in coppie for v in coppia]):
         item = _item(session, str(i), f"idea {i}", vec)
-        attach_item_to_idea(session, item, vec, threshold=0.999)
+        attach_item_to_idea(session, item, vec, threshold=0.99999)
 
     # Soglia altissima: tre topic distinti, che il namer battezza in modo doppio.
     assign_ideas_to_topics(session, threshold=0.999, namer=namer, label_min_ideas=1)
@@ -385,7 +453,7 @@ def test_topics_named_the_same_are_merged(session: Session) -> None:
     assert labels == ["Agenti AI", "Domotica"]  # i due omonimi sono uno
     survivor = next(t for t in topics if t.label == "Agenti AI")
     members = session.exec(select(Idea).where(Idea.topic_id == survivor.id)).all()
-    assert len(members) == 2  # nessuna idea è rimasta orfana
+    assert len(members) == 4  # le due coppie fuse, nessuna idea rimasta orfana
 
 
 def test_merging_keeps_the_older_topic_and_its_history(session: Session) -> None:
@@ -463,3 +531,71 @@ def test_sweep_topic_thresholds_reports_without_writing(session: Session) -> Non
     assert rows[0]["biggest_sample"] == ["idea 0", "idea 1"]
     # Anteprima pura: la sweep non deve aver creato alcun topic.
     assert session.exec(select(Topic)).all() == []
+
+
+def test_single_idea_topics_are_dissolved(session: Session) -> None:
+    """Manutenzione dell'archivio nato con la regola vecchia.
+
+    Non basta un `recluster`: il centroide di un topic da un membro *è* quella
+    idea, quindi la ritrova a similarità 1.0 e la rimette dentro. Vanno sciolti.
+    """
+    # Una coppia (tema vero) e due idee sole con il loro topic finto, come li
+    # creava la regola vecchia.
+    coppia = []
+    for i, vec in enumerate([[1.0, 0.0], [0.97, 0.24]]):
+        item = _item(session, f"c{i}", f"coppia {i}", vec)
+        coppia.append(attach_item_to_idea(session, item, vec, threshold=0.999))
+    tema = Topic(label="tema vero", centroid_json=[0.99, 0.12])
+    session.add(tema)
+    session.commit()
+    session.refresh(tema)
+    for idea in coppia:
+        idea.topic_id = tema.id
+        session.add(idea)
+
+    finti = []
+    for i, vec in enumerate([[0.0, 1.0], [-1.0, 0.0]]):
+        item = _item(session, f"s{i}", f"sola {i}", vec)
+        idea = attach_item_to_idea(session, item, vec, threshold=0.999)
+        topic = Topic(label=f"sola {i}", centroid_json=vec)
+        session.add(topic)
+        session.commit()
+        session.refresh(topic)
+        idea.topic_id = topic.id
+        session.add(idea)
+        finti.append(topic)
+    run = Run(status=RunStatus.DONE)
+    session.add(run)
+    session.commit()
+    for topic in [tema, *finti]:
+        session.add(TopicStat(topic_id=topic.id, run_id=run.id, n_ideas=1, n_items=1))
+    session.commit()
+
+    summary = dissolve_single_idea_topics(session)
+
+    assert summary["n_dissolved"] == 2
+    assert summary["n_ideas_freed"] == 2
+    assert summary["n_stats_removed"] == 2  # le fotografie dei finti, non del vero
+    assert summary["n_topics_left"] == 1
+
+    # Il tema vero è intatto, con la sua storia.
+    assert session.exec(select(Topic)).one().label == "tema vero"
+    assert len(session.exec(select(TopicStat)).all()) == 1
+    # Le due idee sole sono tornate in circolo, non cancellate.
+    orfane = [i for i in session.exec(select(Idea)).all() if i.topic_id is None]
+    assert len(orfane) == 2
+
+
+def test_dissolving_is_idempotent(session: Session) -> None:
+    """Rilanciarlo su un archivio già pulito non deve fare danni."""
+    for i, vec in enumerate([[1.0, 0.0], [0.97, 0.24]]):
+        item = _item(session, str(i), f"idea {i}", vec)
+        attach_item_to_idea(session, item, vec, threshold=0.999)
+    assign_ideas_to_topics(session, threshold=0.8)
+
+    primo = dissolve_single_idea_topics(session)
+    secondo = dissolve_single_idea_topics(session)
+
+    assert primo["n_dissolved"] == 0  # la coppia non è un singleton
+    assert secondo == primo
+    assert len(session.exec(select(Topic)).all()) == 1

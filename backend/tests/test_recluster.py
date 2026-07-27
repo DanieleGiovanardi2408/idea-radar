@@ -73,13 +73,17 @@ def test_recluster_retunes_topics_without_a_full_run(session: Session) -> None:
     assert len(session.exec(select(Idea)).all()) == 2
     assert len(session.exec(select(Topic)).all()) == 1
 
-    # Recluster con soglia più severa: stessi embedding, ma ora due topic distinti.
+    # Recluster con soglia più severa: stessi embedding, ma ora la coppia non si
+    # tiene più — e due idee sole non fanno due temi, restano NON RAGGRUPPATE.
+    # Prima qui nascevano due topic da un membro ciascuno: è il meccanismo che
+    # sull'archivio vero ha prodotto 784 topic finti su 1002.
     result = recluster_topics(
         session, _config(topic_threshold=0.95), Settings(), ollama=FakeOllama()
     )
     assert result["n_ideas"] == 2          # le idee non vengono toccate
-    assert result["n_topics"] == 2         # separati senza rifare il run
-    assert len(session.exec(select(Topic)).all()) == 2
+    assert result["n_topics"] == 0
+    assert session.exec(select(Topic)).all() == []
+    assert all(i.topic_id is None for i in session.exec(select(Idea)).all())
 
 
 def test_recluster_is_idempotent_on_same_threshold(session: Session) -> None:
@@ -117,7 +121,9 @@ def test_threshold_override_beats_config(session: Session) -> None:
         ollama=FakeOllama(),
         topic_threshold=0.95,          # …ma l'override li separa
     )
-    assert result["n_topics"] == 2
+    # Separati significa senza tema: nessuno dei due ha più compagni.
+    assert result["n_topics"] == 0
+    assert all(i.topic_id is None for i in session.exec(select(Idea)).all())
 
 
 def test_cli_recluster_sweep_prints_preview(monkeypatch) -> None:

@@ -299,3 +299,22 @@ def test_stats_counts_archived(client: TestClient, session: Session) -> None:
     session.add(Idea(label="Spenta", status=IdeaStatus.ARCHIVED))
     session.commit()
     assert client.get("/stats").json()["n_archived"] == 1
+
+
+def test_ideas_can_be_asked_for_the_ungrouped_ones(
+    client: TestClient, session: Session
+) -> None:
+    """Da quando un'idea sola non apre un topic, le non raggruppate sono la
+    maggioranza dell'archivio: la vista Topic deve poterle chiedere."""
+    idea = _seed(session)  # ha un topic
+    sola = Idea(label="Idea senza tema", status=IdeaStatus.PROPOSED, topic_id=None)
+    sola.items = [Item(source="hn", external_id="9", title="Sola")]
+    session.add(sola)
+    session.commit()
+
+    tutte = client.get("/ideas").json()
+    senza = client.get("/ideas?ungrouped=true").json()
+
+    assert {i["label"] for i in tutte} == {idea.label, "Idea senza tema"}
+    assert [i["label"] for i in senza] == ["Idea senza tema"]
+    assert all(i["topic_id"] is None for i in senza)

@@ -43,8 +43,15 @@ class FakeEmbedder:
         self.chiamate = 0
 
     def embed(self, text: str) -> list[float]:
+        testo = text.lower()
+        # "agent" sta vicino ad "ai" (coseno 0.98) ma NON identico: due item così
+        # restano idee distinte sotto `idea_threshold` 0.99 e formano una coppia
+        # sopra `topic_threshold` 0.8. Serve perché un topic ora nasce da due
+        # idee: con vettori identici i due item si fonderebbero in una sola.
+        if "agent" in testo:
+            return [0.98, 0.2]
         # "ai" ovunque nel testo (dopo il prefisso "clustering:" degli embedding).
-        return [1.0, 0.0] if "ai" in text.lower() else [0.0, 1.0]
+        return [1.0, 0.0] if "ai" in testo else [0.0, 1.0]
 
     def embed_many(self, texts: list[str]) -> list[list[float] | None]:
         self.chiamate += 1
@@ -93,20 +100,26 @@ def _run(session: Session, items: list[Item], **kwargs):
 
 
 def test_pipeline_creates_items_ideas_scores_and_topics(session: Session) -> None:
+    # "ai tool" e "ai agent" stanno a 0.98: idee distinte (soglia 0.99) che
+    # formano una coppia, quindi un topic. "repo" è ortogonale e resta un'idea
+    # non raggruppata — un'idea sola non fa un tema.
     items = [
         Item(source="hn", external_id="1", title="ai tool", engagement_json={"score": 100}),
+        Item(source="hn", external_id="3", title="ai agent", engagement_json={"score": 90}),
         Item(source="github", external_id="2", title="repo", engagement_json={"stars": 500}),
     ]
     run = _run(session, items)
 
     assert run.status == RunStatus.DONE
-    assert run.n_items == 2
+    assert run.n_items == 3
     assert run.finished_at is not None
-    assert len(session.exec(select(Idea)).all()) == 2
-    assert len(session.exec(select(Score)).all()) == 2
-    assert run.n_ideas_proposed + run.n_ideas_processed == 2
+    assert len(session.exec(select(Idea)).all()) == 3
+    assert len(session.exec(select(Score)).all()) == 3
+    assert run.n_ideas_proposed + run.n_ideas_processed == 3
     assert session.exec(select(Topic)).all()  # topic creati
     assert session.exec(select(TopicStat)).all()  # fotografia per i trend
+    senza_topic = [i for i in session.exec(select(Idea)).all() if i.topic_id is None]
+    assert len(senza_topic) == 1  # "repo": nessun compagno, nessun tema finto
 
 
 def test_embeddings_are_asked_in_one_batch(session: Session) -> None:
@@ -266,7 +279,13 @@ def test_an_empty_run_does_not_flatten_the_trends(session: Session) -> None:
     topic non toccato veniva fotografato a 0.0 — e un run a vuoto (Mac offline)
     azzerava in un colpo la serie di tutti i topic.
     """
-    _run(session, [Item(source="hn", external_id="1", title="ai tool")])
+    _run(
+        session,
+        [
+            Item(source="hn", external_id="1", title="ai tool"),
+            Item(source="hn", external_id="2", title="ai agent"),
+        ],
+    )
     first = session.exec(select(TopicStat)).one()
     assert first.avg_composite > 0
 

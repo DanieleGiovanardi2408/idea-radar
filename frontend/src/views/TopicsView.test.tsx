@@ -9,7 +9,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { TopicsView } from './TopicsView'
 import { fakeIdeaOut, mockFetch, renderWithProviders } from '../test/utils'
-import type { TopicOut } from '../types'
+import type { ProfileOut, TopicOut } from '../types'
 
 function topic(overrides: Partial<TopicOut>): TopicOut {
   return {
@@ -27,9 +27,21 @@ function topic(overrides: Partial<TopicOut>): TopicOut {
   }
 }
 
-const PROFILES = [
-  { name: 'ai-agents', label: 'Agenti AI', keywords: ['ai agents'], n_ideas: 186 },
-  { name: 'domotica', label: 'Domotica e IoT', keywords: ['esp32'], n_ideas: 9 },
+const PROFILES: ProfileOut[] = [
+  {
+    name: 'ai-agents',
+    label: 'Agenti AI',
+    keywords: ['ai agents'],
+    n_ideas: 186,
+    n_ungrouped: 0,
+  },
+  {
+    name: 'domotica',
+    label: 'Domotica e IoT',
+    keywords: ['esp32'],
+    n_ideas: 9,
+    n_ungrouped: 0,
+  },
 ]
 
 function show(topics: TopicOut[], profiles = PROFILES) {
@@ -111,5 +123,63 @@ describe('TopicsView', () => {
     await waitFor(() =>
       expect(calls.some((c) => c.url.includes('min_ideas=1'))).toBe(true),
     )
+  })
+})
+
+describe('idee non raggruppate', () => {
+  it('il macro-tema dice quante sono, e la sezione si apre', async () => {
+    const user = userEvent.setup()
+    const { calls } = show(
+      [topic({ id: 1, label: 'Agenti per il codice', profile: 'ai-agents', n_ideas: 4 })],
+      [
+        {
+          name: 'ai-agents',
+          label: 'Agenti AI',
+          keywords: ['ai agents'],
+          n_ideas: 186,
+          n_ungrouped: 120,
+        },
+      ],
+    )
+
+    expect(await screen.findByText(/120 non raggruppate/)).toBeInTheDocument()
+
+    // Chiusa non chiede niente al server: sono centinaia di idee.
+    expect(calls.some((c) => c.url.includes('ungrouped=true'))).toBe(false)
+
+    await user.click(
+      screen.getByRole('button', { name: /non raggruppate in agenti ai/i }),
+    )
+
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (c) => c.url.includes('ungrouped=true') && c.url.includes('profile=ai-agents'),
+        ),
+      ).toBe(true),
+    )
+    expect(await screen.findByText('Un agente che scrive test')).toBeInTheDocument()
+  })
+
+  it('un tema con SOLE idee non raggruppate non sparisce dalla vista', async () => {
+    // Prima un profilo senza topic veri non compariva affatto: significava
+    // nascondere la parte più grossa dell'archivio.
+    show(
+      [],
+      [
+        {
+          name: 'domotica',
+          label: 'Domotica e IoT',
+          keywords: ['esp32'],
+          n_ideas: 9,
+          n_ungrouped: 9,
+        },
+      ],
+    )
+
+    expect(await screen.findByText('Domotica e IoT')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /non raggruppate in domotica e iot/i }),
+    ).toBeInTheDocument()
   })
 })

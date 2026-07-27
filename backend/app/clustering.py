@@ -250,8 +250,19 @@ def assign_ideas_to_topics(
     """Raggruppa le idee in topic per similarità dei centroidi.
 
     I topic *persistono* tra un run e l'altro: è ciò che rende misurabile un
-    trend. Un'idea nuova entra in un topic esistente se abbastanza vicina,
-    altrimenti ne apre uno.
+    trend. Un'idea nuova entra in un topic esistente se abbastanza vicina.
+
+    **Un'idea sola non fa un tema.** Prima ogni idea che non trovava compagni si
+    apriva un topic col proprio titolo come nome: su 1002 topic, 784 avevano un
+    solo membro, e il numero in copertina ("1002 temi") non descriveva niente.
+    Non era una soglia da tarare — misurato sull'archivio, due idee *a caso*
+    stanno a 0,614 di similarità con il 99° percentile a 0,750 e punte a 0,878,
+    mentre il vicino più prossimo ha mediana 0,791: le due distribuzioni sono
+    sovrapposte, e a legame singolo qualunque soglia produce o un blob da 886
+    idee o polvere. Il raggruppamento resta quindi conservativo, ma chi non
+    trova compagni tiene ``topic_id`` a ``None`` — è un'idea non raggruppata,
+    non un tema da un elemento. Due orfane vicine ne aprono uno insieme, così un
+    tema nuovo può ancora nascere.
 
     ``label_min_ideas`` è la soglia sotto la quale un topic non viene nominato
     dall'LLM (vedi ``_needs_label``).
@@ -267,8 +278,7 @@ def assign_ideas_to_topics(
     # Il valore normalizzato NON viene salvato: il coseno non cambia.
     topic_units = [unit(t.centroid_json) if t.centroid_json else None for t in topics]
 
-    for idea in ideas:
-        idea_unit = unit(idea.centroid_json)
+    def piu_vicino(idea_unit: Vector) -> tuple[Topic | None, float]:
         best: Topic | None = None
         best_sim = -1.0
         for topic, topic_unit in zip(topics, topic_units):
@@ -277,20 +287,69 @@ def assign_ideas_to_topics(
             sim = dot(idea_unit, topic_unit)
             if sim > best_sim:
                 best, best_sim = topic, sim
+        return best, best_sim
 
+    # Primo passaggio: chi trova un topic esistente ci entra. Chi non lo trova
+    # NON si autoproclama tema: resta in panchina e ci riprova nel secondo giro.
+    orfane: list[tuple[Idea, Vector]] = []
+    for idea in ideas:
+        idea_unit = unit(idea.centroid_json)
+        best, best_sim = piu_vicino(idea_unit)
         if best is not None and best_sim >= threshold:
             idea.topic_id = best.id
             best.last_seen = utcnow()
             session.add(best)
+            session.add(idea)
         else:
-            topic = Topic(label=idea.label[:80], centroid_json=idea.centroid_json)
+            idea.topic_id = None
+            session.add(idea)
+            orfane.append((idea, idea_unit))
+    session.commit()
+
+    # Secondo passaggio: due orfane abbastanza vicine aprono un tema INSIEME.
+    #
+    # Senza questo, "un'idea sola non fa un topic" diventerebbe "un tema nuovo
+    # non può nascere": la prima idea resterebbe orfana per sempre e la seconda
+    # non troverebbe nessun topic da cui essere accolta. Il confronto resta sul
+    # centroide del topic appena creato, come nel primo giro — è quello che
+    # impedisce la catena che a legame singolo incolla metà archivio in un blob.
+    in_panchina: list[tuple[Idea, Vector]] = []
+    for idea, idea_unit in orfane:
+        best, best_sim = piu_vicino(idea_unit)
+        if best is not None and best_sim >= threshold:
+            idea.topic_id = best.id
+            best.last_seen = utcnow()
+            session.add(best)
+            session.add(idea)
+            continue
+
+        compagna = None
+        compagna_sim = -1.0
+        for candidata in in_panchina:
+            sim = dot(idea_unit, candidata[1])
+            if sim > compagna_sim:
+                compagna, compagna_sim = candidata, sim
+
+        if compagna is not None and compagna_sim >= threshold:
+            altra, altro_unit = compagna
+            # L'etichetta provvisoria è il titolo dell'idea più forte delle due;
+            # se il tema cresce oltre `label_min_ideas` il modello lo rinomina.
+            topic = Topic(
+                label=idea.label[:80],
+                centroid_json=centroid([idea.centroid_json, altra.centroid_json]),
+            )
             session.add(topic)
             session.commit()
             session.refresh(topic)
             topics.append(topic)
-            topic_units.append(idea_unit)
+            topic_units.append(unit(topic.centroid_json or idea.centroid_json))
             idea.topic_id = topic.id
-        session.add(idea)
+            altra.topic_id = topic.id
+            session.add(idea)
+            session.add(altra)
+            in_panchina.remove(compagna)
+        else:
+            in_panchina.append((idea, idea_unit))
     session.commit()
 
     # Ricalcola centroidi ed etichette dei topic sui membri effettivi.
@@ -330,7 +389,89 @@ def assign_ideas_to_topics(
         session.add(topic)
     session.commit()
     merge_topics_with_the_same_label(session)
+    dissolve_empty_topics(session)
     return [t for t in topics if session.get(Topic, t.id) is not None]
+
+
+def dissolve_single_idea_topics(session: Session) -> dict:
+    """Scioglie i topic che hanno una sola idea: manutenzione dell'archivio.
+
+    Serve una volta, per i topic nati con la regola vecchia — 784 su 1002 nel DB
+    del 27/07. Non basta un ``recluster``: il centroide di un topic da un membro
+    *è* quella idea, quindi la ritroverebbe a similarità 1.0 e la rimetterebbe
+    dentro. Vanno sciolti prima, così le idee tornano in circolo e possono
+    accoppiarsi tra loro al prossimo raggruppamento.
+
+    Le fotografie di quei topic se ne vanno con loro: una serie di trend costruita
+    su un gruppo da un'idea non misura un tema, misura quell'idea — che ha già la
+    sua storia negli Score.
+    """
+    per_topic: dict[int, list[Idea]] = {}
+    for idea in session.exec(select(Idea)).all():
+        if idea.topic_id is not None:
+            per_topic.setdefault(idea.topic_id, []).append(idea)
+
+    liberate = 0
+    sciolti = 0
+    fotografie = 0
+    for topic_id, membri in per_topic.items():
+        if len(membri) > 1:
+            continue
+        for idea in membri:
+            idea.topic_id = None
+            session.add(idea)
+            liberate += 1
+        for stat in session.exec(
+            select(TopicStat).where(TopicStat.topic_id == topic_id)
+        ).all():
+            session.delete(stat)
+            fotografie += 1
+        topic = session.get(Topic, topic_id)
+        if topic is not None:
+            session.delete(topic)
+            sciolti += 1
+    session.commit()
+    # I topic rimasti senza membri per altre vie se ne vanno con la stessa scopa.
+    sciolti += dissolve_empty_topics(session)
+    return {
+        "n_dissolved": sciolti,
+        "n_ideas_freed": liberate,
+        "n_stats_removed": fotografie,
+        "n_topics_left": len(session.exec(select(Topic)).all()),
+    }
+
+
+def dissolve_empty_topics(session: Session) -> int:
+    """Cancella i topic che non hanno più nessuna idea, e le loro fotografie.
+
+    Da quando un tema vuole almeno due idee, un topic può *svuotarsi*: se i suoi
+    membri non si tengono più (soglia cambiata, idee fuse altrove) tornano non
+    raggruppati e la riga resta lì, senza contenuto. `topics_overview` la
+    nasconde già, ma ``/stats`` conta le righe: senza questa pulizia il numero
+    dei temi ricomincerebbe a gonfiarsi, che è il difetto da cui siamo partiti.
+
+    Le fotografie vanno con lui: una serie di trend che descrive un gruppo che
+    non esiste più è un fantasma, e le idee che conteneva hanno la loro storia.
+    """
+    vivi = {
+        idea.topic_id
+        for idea in session.exec(select(Idea)).all()
+        if idea.topic_id is not None
+    }
+    sciolti = 0
+    for topic in list(session.exec(select(Topic)).all()):
+        if topic.id in vivi:
+            continue
+        for stat in session.exec(
+            select(TopicStat).where(TopicStat.topic_id == topic.id)
+        ).all():
+            session.delete(stat)
+        session.delete(topic)
+        sciolti += 1
+    if sciolti:
+        session.commit()
+        logger.info("Sciolti %d topic senza più idee", sciolti)
+    return sciolti
 
 
 def _normalized_label(label: str) -> str:

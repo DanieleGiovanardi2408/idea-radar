@@ -137,6 +137,10 @@ export interface ProfileOut {
   label: string
   keywords: string[]
   n_ideas: number
+  /* Quante di quelle idee non stanno in nessun tema. Non si ricava per
+     differenza da `n_ideas` e dalla somma dei topic: i due si contano su
+     insiemi diversi, quindi la sottrazione mentirebbe. */
+  n_ungrouped: number
 }
 
 /** Ritmo dei segnali: quando NASCONO (created_at), non quando li raccogliamo. */

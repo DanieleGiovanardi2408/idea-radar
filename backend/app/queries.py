@@ -60,6 +60,7 @@ def top_ideas(
     offset: int = 0,
     include_dismissed: bool = False,
     profile: str | None = None,
+    ungrouped: bool = False,
 ) -> list[tuple[Idea, Score | None]]:
     """Idee con il loro ultimo score: pinnate prima, poi composite decrescente.
 
@@ -85,6 +86,12 @@ def top_ideas(
         stmt = stmt.where(Idea.status == status)
     if topic_id is not None:
         stmt = stmt.where(Idea.topic_id == topic_id)
+    if ungrouped:
+        # Le idee che non stanno in nessun tema. Non sono un residuo da
+        # nascondere: da quando un'idea sola non apre un topic, sono la
+        # maggioranza dell'archivio, e la vista Topic deve poterle mostrare
+        # invece di farle sparire.
+        stmt = stmt.where(Idea.topic_id.is_(None))  # type: ignore[union-attr]
     if profile is not None:
         # Il profilo vive sullo score (è il tema su cui il fit è stato misurato):
         # filtrarci significa "il radar visto da questo tema".
@@ -193,6 +200,34 @@ def ideas_per_profile(session: Session) -> dict[str, int]:
         .where(
             Idea.status != IdeaStatus.ARCHIVED,
             Idea.dismissed_at.is_(None),  # type: ignore[union-attr]
+            Score.profile.is_not(None),  # type: ignore[union-attr]
+        )
+        .group_by(Score.profile)
+    )
+    return {name: count for name, count in session.exec(stmt).all()}
+
+
+def ungrouped_per_profile(session: Session) -> dict[str, int]:
+    """Quante idee vive di ciascun profilo non stanno in nessun tema.
+
+    Il numero serve nell'intestazione del macro-tema: da quando un'idea sola non
+    apre un topic, le non raggruppate sono la maggioranza dell'archivio, e la
+    vista deve dire quante sono invece di lasciarle intuire per differenza —
+    ``n_ideas`` del profilo e la somma dei topic si contano su insiemi diversi,
+    quindi la sottrazione mentirebbe.
+    """
+    subq = _latest_score_run_subq()
+    stmt = (
+        select(Score.profile, func.count())
+        .join(
+            subq,
+            (Score.idea_id == subq.c.idea_id) & (Score.run_id == subq.c.run_id),
+        )
+        .join(Idea, Idea.id == Score.idea_id)
+        .where(
+            Idea.status != IdeaStatus.ARCHIVED,
+            Idea.dismissed_at.is_(None),  # type: ignore[union-attr]
+            Idea.topic_id.is_(None),  # type: ignore[union-attr]
             Score.profile.is_not(None),  # type: ignore[union-attr]
         )
         .group_by(Score.profile)

@@ -34,6 +34,7 @@ export const api = {
     offset?: number
     include_dismissed?: boolean
     profile?: string
+    ungrouped?: boolean
   }) => {
     const q = new URLSearchParams()
     if (params?.status) q.set('status', params.status)
@@ -41,6 +42,7 @@ export const api = {
     if (params?.offset !== undefined) q.set('offset', String(params.offset))
     if (params?.include_dismissed) q.set('include_dismissed', 'true')
     if (params?.profile) q.set('profile', params.profile)
+    if (params?.ungrouped) q.set('ungrouped', 'true')
     const qs = q.toString()
     return get<IdeaOut[]>(`/ideas${qs ? `?${qs}` : ''}`)
   },

@@ -3,9 +3,10 @@
 from datetime import datetime
 
 import typer
+from sqlmodel import select
 
 from app.appconfig import get_config
-from app.clustering import sweep_topic_thresholds
+from app.clustering import dissolve_single_idea_topics, sweep_topic_thresholds
 from app.config import get_settings
 from app.db import DATA_DIR, get_session, init_db
 from app.digest import last_digest_at, render_digest, write_digest
@@ -14,7 +15,7 @@ from app.healing import (
     items_without_embedding,
     regenerate_insights,
 )
-from app.models import IdeaStatus, utcnow
+from app.models import Idea, IdeaStatus, Topic, utcnow
 from app.pipeline import (
     execute_heal,
     execute_rescore,
@@ -391,6 +392,52 @@ def rebuild_ideas_command(
         f"({summary['n_topics']} topic, {summary['n_scored']} riscorate sul run "
         f"#{summary['scored_on_run']}); la più grossa {summary['max_size']} item, "
         f"{summary['n_user_state_restored']} azioni utente trasferite."
+    )
+
+
+@app.command(name="prune-topics")
+def prune_topics_command(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Dice quanti ne scioglierebbe, senza scrivere."
+    ),
+) -> None:
+    """Scioglie i topic che contengono una sola idea.
+
+    Manutenzione da fare una volta, per l'archivio nato con la regola vecchia:
+    ogni idea che non trovava compagni si apriva un tema col proprio titolo, e
+    così su 1002 topic 784 avevano un solo membro — un numero che non descriveva
+    niente. Ora un tema vuole almeno due idee, quindi il problema non si
+    riforma; questo comando ripulisce quello che c'è già.
+
+    Le idee tornano "non raggruppate" e restano intatte: al prossimo run possono
+    accoppiarsi tra loro. Con `--dry-run` si vede il conto prima di toccare.
+    """
+    init_db()
+    with get_session() as session:
+        if dry_run:
+            per_topic: dict[int, int] = {}
+            for idea in session.exec(select(Idea)).all():
+                if idea.topic_id is not None:
+                    per_topic[idea.topic_id] = per_topic.get(idea.topic_id, 0) + 1
+            soli = [t for t, n in per_topic.items() if n == 1]
+            totale = len(session.exec(select(Topic)).all())
+            typer.echo(
+                f"{len(soli)} topic su {totale} hanno una sola idea: "
+                f"resterebbero {totale - len(soli)} temi veri."
+            )
+            typer.echo("Nessuna scrittura (--dry-run).")
+            return
+
+        summary = dissolve_single_idea_topics(session)
+
+    if not summary["n_dissolved"]:
+        typer.echo("Niente da sciogliere: nessun topic con una sola idea.")
+        return
+    typer.echo(
+        f"Fatto — {summary['n_dissolved']} topic sciolti, "
+        f"{summary['n_ideas_freed']} idee tornate non raggruppate, "
+        f"{summary['n_stats_removed']} fotografie di trend rimosse. "
+        f"Restano {summary['n_topics_left']} temi."
     )
 
 

@@ -283,7 +283,12 @@ def test_rebuild_reports_progress_through_the_slow_parts(session: Session) -> No
     topic) e il riscoring; entrambe devono farsi sentire.
     """
     messages: list[str] = []
-    for i, vec in enumerate([[1.0, 0.0], [0.99, 0.1], [0.0, 1.0]]):
+    # Le due prime idee stanno a 0.75 di similarità: sopra `topic_threshold`
+    # (0.5) e sotto `idea_threshold` (0.85), quindi restano idee distinte che
+    # formano UN topic — quello che il naming deve nominare. Da quando un'idea
+    # sola non apre un tema, senza una coppia qui non ci sarebbe nulla da
+    # nominare e il messaggio di avanzamento non arriverebbe mai.
+    for i, vec in enumerate([[1.0, 0.0], [0.75, 0.66], [0.0, 1.0]]):
         _item(session, str(i), f"item {i}", vec)
     _done_run(session)
 

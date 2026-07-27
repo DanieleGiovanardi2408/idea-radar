@@ -23,6 +23,7 @@ from app.queries import (
     top_ideas,
     topic_trends,
     topics_overview,
+    ungrouped_per_profile,
 )
 from app.config import get_settings
 from app.runlock import RunLockBusy, run_lock_busy
@@ -255,12 +256,14 @@ def list_ideas(
     offset: int = Query(default=0, ge=0),
     include_dismissed: bool = False,
     profile: str | None = None,
+    ungrouped: bool = False,
 ) -> list[IdeaOut]:
     """Idee ordinate (pinnate prima, poi composite): filtri e paginazione in SQL.
 
     Default: solo il vivo. Le archiviate si chiedono con ``?status=archived``,
     le scartate a mano con ``?include_dismissed=true``, e ``?profile=<nome>``
     mostra il radar dal punto di vista di un tema solo.
+    ``?ungrouped=true`` restituisce le idee che non stanno in nessun topic.
     """
     rows = top_ideas(
         session,
@@ -270,6 +273,7 @@ def list_ideas(
         offset=offset,
         include_dismissed=include_dismissed,
         profile=profile,
+        ungrouped=ungrouped,
     )
     return [_idea_out(idea, score) for idea, score in rows]
 
@@ -331,6 +335,9 @@ class ProfileOut(BaseModel):
     label: str
     keywords: list[str]
     n_ideas: int = 0
+    # Quante di quelle idee non stanno in nessun tema: da quando un'idea sola
+    # non apre un topic sono la maggioranza, e la vista deve dirlo.
+    n_ungrouped: int = 0
 
 
 @app.get("/profiles", response_model=list[ProfileOut])
@@ -341,12 +348,14 @@ def list_profiles(session: Session = Depends(get_db)) -> list[ProfileOut]:
     l'unica fonte di verità è il backend.
     """
     counts = ideas_per_profile(session)
+    ungrouped = ungrouped_per_profile(session)
     return [
         ProfileOut(
             name=p.name,
             label=p.title,
             keywords=p.keywords,
             n_ideas=counts.get(p.name, 0),
+            n_ungrouped=ungrouped.get(p.name, 0),
         )
         for p in get_config().effective_profiles()
     ]

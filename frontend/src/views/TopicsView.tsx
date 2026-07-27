@@ -14,6 +14,7 @@ import {
   useProfiles,
   useTopicIdeas,
   useTopics,
+  useUngroupedIdeas,
   type TopicOrder,
 } from '../hooks/useRadarData'
 import type { TopicOut } from '../types'
@@ -59,6 +60,72 @@ function TopicMembers({
         <IdeaCard key={idea.id} idea={idea} index={index} onSelect={onSelect} />
       ))}
     </>
+  )
+}
+
+/* Le idee che non stanno in nessun tema.
+ *
+ * Un'idea sola non apre un topic — misurato sull'archivio, con questi embedding
+ * il vicino più prossimo (mediana 0,791) è indistinguibile da una coppia a caso
+ * (99° percentile 0,750, punte a 0,878), quindi i "temi da un elemento" erano
+ * 784 su 1002 e non descrivevano niente. Ma non essere raggruppata non vuol dire
+ * non esistere: qui sotto ci sono, sotto il loro macro-tema, in una sezione che
+ * si apre solo se la si chiede. */
+function UngroupedRow({
+  profile,
+  label,
+  count,
+  index,
+  open,
+  onToggle,
+  onSelect,
+}: {
+  profile: string | null
+  label: string
+  count: number
+  index: number
+  open: boolean
+  onToggle: () => void
+  onSelect: (id: number) => void
+}) {
+  const { data: ideas = [], isPending, isError } = useUngroupedIdeas(profile, open)
+  return (
+    <div
+      className="stagger overflow-hidden rounded-2xl border border-dashed border-white/[0.08] bg-white/[0.01]"
+      style={staggerDelay(index) as CSSProperties}
+    >
+      <button
+        onClick={onToggle}
+        aria-expanded={open}
+        className="group flex w-full items-center gap-3 p-4 text-left"
+      >
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate font-display text-sm font-medium tracking-tight text-slate-400 group-hover:text-slate-200">
+            Non raggruppate in {label}
+          </h3>
+          <p className="mt-1 text-xs text-slate-600">
+            {count} idee che non somigliano abbastanza a nessun'altra per fare
+            tema. Restano ordinate per punteggio.
+          </p>
+        </div>
+        <IconChevron open={open} />
+      </button>
+      {open && (
+        <div className="grid gap-2 border-t border-white/[0.06] p-2">
+          {isError && (
+            <p className="p-3 text-sm text-flare">
+              Impossibile caricare le idee non raggruppate.
+            </p>
+          )}
+          {isPending && !isError && (
+            <p className="p-3 text-sm text-slate-600">Caricamento…</p>
+          )}
+          {ideas.map((idea, i) => (
+            <IdeaCard key={idea.id} idea={idea} index={i} onSelect={onSelect} />
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -147,6 +214,9 @@ export function TopicsView({ onSelect }: { onSelect: (id: number) => void }) {
   const [openId, setOpenId] = useState<number | null>(
     Number.isInteger(focused) ? focused : null,
   )
+  // Una sola sezione "non raggruppate" aperta per volta, come per i temi:
+  // sono centinaia di idee, aprirne due insieme è una lista da scorrere a vuoto.
+  const [openUngrouped, setOpenUngrouped] = useState<string | null>(null)
   const [order, setOrder] = useState<TopicOrder>('n_ideas')
   // Di default si nascondono i temi da una sola idea: con le soglie tarate sono
   // la maggioranza, sono veri, ma scorrerne centinaia non serve a niente.
@@ -209,7 +279,15 @@ export function TopicsView({ onSelect }: { onSelect: (id: number) => void }) {
     )
   }
 
-  if (topics.length === 0) {
+  /* Zero topic NON significa zero idee: da quando un'idea sola non apre un tema,
+     un profilo può avere centinaia di idee e nessun gruppo. Se ci sono non
+     raggruppate da mostrare, la vista deve proseguire fino alle sezioni invece
+     di dichiarare il vuoto — è il caso normale subito dopo `prune-topics`. */
+  const totaleNonRaggruppate = profiles.reduce(
+    (somma, p) => somma + (p.n_ungrouped ?? 0),
+    0,
+  )
+  if (topics.length === 0 && totaleNonRaggruppate === 0) {
     return (
       <div className="grid gap-3">
         {controls}
@@ -240,13 +318,21 @@ export function TopicsView({ onSelect }: { onSelect: (id: number) => void }) {
       name: p.name,
       label: p.label,
       topics: topics.filter((t) => t.profile === p.name),
+      ungrouped: p.n_ungrouped ?? 0,
     }))
-    .filter((g) => g.topics.length > 0)
+    // Un macro-tema entra anche se ha SOLO idee non raggruppate: nasconderlo
+    // significherebbe far sparire dalla vista la parte più grossa dell'archivio.
+    .filter((g) => g.topics.length > 0 || g.ungrouped > 0)
   const orphans = topics.filter(
     (t) => !t.profile || !profiles.some((p) => p.name === t.profile),
   )
   if (orphans.length > 0) {
-    groups.push({ name: '', label: 'Senza tema', topics: orphans })
+    groups.push({
+      name: '',
+      label: 'Senza tema',
+      topics: orphans,
+      ungrouped: 0,
+    })
   }
 
   let rendered = 0
@@ -263,6 +349,7 @@ export function TopicsView({ onSelect }: { onSelect: (id: number) => void }) {
               </span>
               <span className="text-xs tabular-nums text-slate-600">
                 {group.topics.length} temi · {ideas} idee
+                {group.ungrouped > 0 && ` · ${group.ungrouped} non raggruppate`}
               </span>
             </h2>
             {group.topics.map((topic) => (
@@ -275,6 +362,21 @@ export function TopicsView({ onSelect }: { onSelect: (id: number) => void }) {
                 onSelect={onSelect}
               />
             ))}
+            {group.ungrouped > 0 && group.name && (
+              <UngroupedRow
+                profile={group.name}
+                label={group.label}
+                count={group.ungrouped}
+                index={rendered++}
+                open={openUngrouped === group.name}
+                onToggle={() =>
+                  setOpenUngrouped(
+                    openUngrouped === group.name ? null : group.name,
+                  )
+                }
+                onSelect={onSelect}
+              />
+            )}
           </section>
         )
       })}
