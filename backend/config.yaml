@@ -110,8 +110,10 @@ sources:
       - self-hosted
       - automation
   # npm: pacchetti nuovi, settimane prima che finiscano su HN. Senza chiave.
-  # NB: la popolarità di npms.io è un punteggio normalizzato, non un contatore
-  # vivo — la heat qui resta euristica.
+  # L'engagement sono i DOWNLOAD SETTIMANALI (api.npmjs.org, una richiesta per
+  # pacchetto): i punteggi della search di npms.io sui dati reali sono 1.0 per
+  # tutti, quindi inutili. I download sono un numero vero, sono già un tasso e
+  # crescono: quarta fonte con la heat misurata a delta.
   - name: npm
     type: npm
     limit: 20

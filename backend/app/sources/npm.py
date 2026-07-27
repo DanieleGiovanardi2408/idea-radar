@@ -31,21 +31,31 @@ from app.sources.profiles import SourceProfile, register_profile
 logger = logging.getLogger(__name__)
 
 API_URL = "https://registry.npmjs.org/-/v1/search"
+DOWNLOADS_URL = "https://api.npmjs.org/downloads/point/last-week"
 SOURCE_NAME = "npm"
 REQUEST_DELAY = 0.3
 TIMEOUT = 30.0
 
-# La popolarità di npms.io è normalizzata 0-1 e NON è un contatore che cresce
-# tra due osservazioni: niente delta, si resta sull'euristica. I cap sono quindi
-# su una scala minuscola rispetto alle altre fonti.
+# L'engagement sono i DOWNLOAD SETTIMANALI, non i punteggi della search.
+#
+# Il primo tentativo usava `score.detail.popularity` e `quality` di npms.io, e
+# sui dati reali quei campi arrivano a **1.0 per ogni pacchetto**: non
+# discriminano niente. Combinati con una divisione per l'età davano heat 1.00 a
+# tutto, e npm si prendeva 17 dei 55 posti sopra soglia con librerie
+# affermatissime (`@docusaurus/core`, `appium`) spacciate per segnali in ascesa.
+#
+# I download settimanali invece sono un numero vero, sono già una *velocità*
+# (per settimana, quindi niente divisione per l'età) e crescono nel tempo,
+# quindi sono anche un contatore vivo: la heat si misura a delta come su GitHub.
+# Costano una richiesta per pacchetto ad api.npmjs.org, gratuita e senza chiave.
 PROFILE = SourceProfile(
-    velocity_cap=0.05,  # "popolarità al giorno": 0.05 è già un lancio riuscito
-    saturation_cap=1.0,  # la popolarità è già normalizzata: 1.0 = onnipresente
+    velocity_cap=20_000.0,  # download/settimana che valgono heat = 1.0
+    saturation_cap=1_000_000.0,  # oltre il milione è una libreria di sistema
     credibility_base=0.35,
-    live_counter=False,
-    velocity_per_age=True,
+    live_counter=True,
+    velocity_per_age=False,  # i download settimanali sono già un tasso
     maturity_in_saturation=True,
-    engagement_weights={"popularity": 100.0, "quality": 10.0},
+    engagement_weights={"downloads": 1.0},
 )
 register_profile(SOURCE_NAME, PROFILE)
 
@@ -116,8 +126,14 @@ class NpmSource:
                     if item.created_at is not None and item.created_at < cutoff:
                         continue
                     seen.setdefault(item.external_id, item)
+            # I download arrivano solo per i candidati sopravvissuti al filtro
+            # sull'età: una richiesta a pacchetto, quindi non si spreca.
+            candidates = sorted(seen.values(), key=lambda i: i.title)[
+                : self.cfg.limit * 2
+            ]
+            self._add_downloads(client, candidates)
             ranked = sorted(
-                seen.values(),
+                candidates,
                 key=lambda i: PROFILE.engagement(i.engagement_json),
                 reverse=True,
             )
@@ -126,6 +142,25 @@ class NpmSource:
             if self._owns_client and self._client is not None:
                 self._client.close()
                 self._client = None
+
+    def _add_downloads(self, client: httpx.Client, items: list[Item]) -> None:
+        """Riempie ``engagement_json['downloads']`` coi download dell'ultima settimana.
+
+        Un pacchetto senza dato resta a zero: meglio una heat bassa che un numero
+        inventato. Un errore qui non fa fallire la fonte — l'item c'è comunque, e
+        alla prossima osservazione il download magari arriva.
+        """
+        for index, item in enumerate(items):
+            if index > 0:
+                time.sleep(REQUEST_DELAY)
+            try:
+                resp = client.get(f"{DOWNLOADS_URL}/{item.title}")
+                resp.raise_for_status()
+                downloads = int(resp.json().get("downloads") or 0)
+            except (httpx.HTTPError, ValueError, TypeError) as exc:
+                logger.info("npm, download di %r non disponibili: %s", item.title, exc)
+                continue
+            item.engagement_json = {**(item.engagement_json or {}), "downloads": downloads}
 
     @staticmethod
     def _to_item(entry: dict) -> Item | None:
@@ -145,10 +180,9 @@ class NpmSource:
             url=links.get("npm") or f"https://www.npmjs.com/package/{name}",
             text=(f"{description} [{keywords}]" if keywords else description)[:2000] or None,
             author=publisher.get("username"),
-            engagement_json={
-                "popularity": float(score.get("popularity") or 0.0),
-                "quality": float(score.get("quality") or 0.0),
-            },
+            # `downloads` lo riempie `_add_downloads`; i punteggi della search si
+            # tengono solo nel raw_json, perché sui dati reali sono tutti 1.0.
+            engagement_json={"downloads": 0},
             # `date` è l'ultima pubblicazione, non la nascita del pacchetto: per
             # una libreria è comunque il segnale di vita che ci interessa.
             created_at=_parse_iso(package.get("date")),
