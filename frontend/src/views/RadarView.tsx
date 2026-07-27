@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { IdeaCard } from '../components/IdeaCard'
 import { RadarScope } from '../components/RadarScope'
 import { EmptyState, ErrorNotice, SkeletonCard } from '../components/ui'
-import { useIdeas } from '../hooks/useRadarData'
+import { useIdeas, useProfiles } from '../hooks/useRadarData'
 import type { IdeaOut } from '../types'
 
 type Filter = 'proposed' | 'all'
@@ -20,11 +20,18 @@ export function RadarView({ onSelect }: { onSelect: (id: number) => void }) {
   const [filter, setFilter] = useState<Filter>('proposed')
   const [showDismissed, setShowDismissed] = useState(false)
   const [query, setQuery] = useState('')
+  // null = tutti i temi. Il filtro è server-side: il profilo vive sullo score.
+  const [profile, setProfile] = useState<string | null>(null)
 
-  const { data: ideas = [], isPending, isError } = useIdeas()
+  const { data: profiles = [] } = useProfiles()
+  const { data: ideas = [], isPending, isError } = useIdeas({ profile })
   // Le scartate vivono in una query a parte, caricata solo quando servono:
   // il server le esclude di default, con include_dismissed le riporta tutte.
-  const dismissedQuery = useIdeas({ includeDismissed: true, enabled: showDismissed })
+  const dismissedQuery = useIdeas({
+    includeDismissed: true,
+    enabled: showDismissed,
+    profile,
+  })
   const dismissedIdeas = useMemo(
     () => (dismissedQuery.data ?? []).filter((i) => i.dismissed_at !== null),
     [dismissedQuery.data],
@@ -54,18 +61,58 @@ export function RadarView({ onSelect }: { onSelect: (id: number) => void }) {
     )
   }
 
+  /* Il selettore dei temi: i profili vengono da config.yaml sul backend, quindi
+     compare solo se ce n'è più di uno da scegliere. */
+  const themes =
+    profiles.length > 1 ? (
+      <div className="glass flex flex-wrap items-center gap-1.5 rounded-2xl p-2">
+        <span className="hud px-1.5 text-slate-600">Tema</span>
+        <button
+          onClick={() => setProfile(null)}
+          aria-pressed={profile === null}
+          className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+            profile === null
+              ? 'bg-phosphor/15 text-phosphor shadow-[inset_0_0_0_1px_rgba(46,232,162,0.25)]'
+              : 'text-slate-500 hover:text-slate-300'
+          }`}
+        >
+          Tutti
+        </button>
+        {profiles.map((p) => (
+          <button
+            key={p.name}
+            onClick={() => setProfile(p.name)}
+            aria-pressed={profile === p.name}
+            title={p.keywords.join(' · ')}
+            className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+              profile === p.name
+                ? 'bg-phosphor/15 text-phosphor shadow-[inset_0_0_0_1px_rgba(46,232,162,0.25)]'
+                : 'text-slate-500 hover:text-slate-300'
+            }`}
+          >
+            {p.label}
+            <span className="ml-1.5 tabular-nums opacity-60">{p.n_ideas}</span>
+          </button>
+        ))}
+      </div>
+    ) : null
+
   if (ideas.length === 0 && !showDismissed) {
     return (
-      <EmptyState>
-        Il quadrante è vuoto: nessun segnale ancora intercettato.
-        <br />
-        Lancia un run per iniziare la scansione.
-      </EmptyState>
+      <div className="space-y-4">
+        {themes}
+        <EmptyState>
+          {profile
+            ? 'Nessuna idea in questo tema, per ora. Prova "Tutti".'
+            : 'Il quadrante è vuoto: nessun segnale ancora intercettato. Lancia un run per iniziare la scansione.'}
+        </EmptyState>
+      </div>
     )
   }
 
   return (
     <div className="space-y-4">
+      {themes}
       {/* Il quadrante: tutte le idee vive, qualunque sia il filtro della lista */}
       <RadarScope ideas={ideas} onSelect={onSelect} />
 

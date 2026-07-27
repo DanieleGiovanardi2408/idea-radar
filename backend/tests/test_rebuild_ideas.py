@@ -302,6 +302,34 @@ def test_rebuild_reports_progress_through_the_slow_parts(session: Session) -> No
     assert any(m.startswith("nomi topic") for m in messages)
 
 
+def test_rescoring_twice_updates_instead_of_duplicating(session: Session) -> None:
+    """Regressione: ``rescore`` gira su un archivio INTATTO, dove lo score esiste già.
+
+    ``rebuild-ideas`` cancella tutto prima, quindi un INSERT cieco gli andava
+    bene; ``rescore`` no, e violava la chiave primaria (idea, run) — e la stessa
+    cosa succedeva a ``topic_stats``. Rifotografare lo stesso run è legittimo:
+    la fotografia si sovrascrive.
+    """
+    from app.pipeline import _record_topic_stats, _rescore_ideas
+    from app.models import TopicStat
+
+    _item(session, "1", "un doppione", [1.0, 0.0])
+    run = _done_run(session)
+    config = _config()
+    rebuild_ideas(session, config, Settings(), ollama=FakeOllama())
+
+    prima = _rescore_ideas(session, config, run, {})
+    _record_topic_stats(session, run)
+    dopo = _rescore_ideas(session, config, run, {})  # non deve esplodere
+    _record_topic_stats(session, run)
+
+    assert prima == dopo == 1
+    scores = session.exec(select(Score).where(Score.run_id == run.id)).all()
+    assert len(scores) == 1  # aggiornato, non duplicato
+    stats = session.exec(select(TopicStat).where(TopicStat.run_id == run.id)).all()
+    assert len(stats) == len({s.topic_id for s in stats})
+
+
 def test_cli_dry_run_does_not_rebuild(monkeypatch) -> None:
     monkeypatch.setattr(
         cli,

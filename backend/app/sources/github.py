@@ -73,20 +73,28 @@ class GitHubSource:
         return list(zip([0, *edges[:-1]], edges))
 
     def search_query(
-        self, keyword: str, band: tuple[int, int], today: datetime | None = None
+        self,
+        keywords: str | list[str],
+        band: tuple[int, int],
+        today: datetime | None = None,
     ) -> str:
-        """La query per una keyword in una fascia d'età: giovane, in tema, non rumorosa.
+        """La query per un TEMA in una fascia d'età: giovane, in tema, non rumorosa.
+
+        Le keyword arrivano in OR, ma sono quelle di un solo profilo: è la
+        differenza col vecchio OR globale, che mescolava "domotica" e "prompt
+        engineering" nella stessa domanda e lasciava vincere il termine più
+        popolare. Dentro un profilo l'OR è legittimo — sono sinonimi di un tema.
 
         Il vincolo sulla nascita è quello che fa la differenza — senza, "ordinato
-        per stelle" significa "i più famosi del mondo", che è la domanda sbagliata.
+        per stelle" significa "i più famosi del mondo", la domanda sbagliata.
         """
         today = today or datetime.now(timezone.utc)
         newer, older = band
         start = (today - timedelta(days=older)).date().isoformat()
         end = (today - timedelta(days=newer)).date().isoformat()
-        return (
-            f'"{keyword}" stars:>={self.cfg.min_stars} created:{start}..{end}'
-        )
+        terms = [keywords] if isinstance(keywords, str) else list(keywords)
+        quoted = " OR ".join(f'"{term}"' for term in terms) or '"software"'
+        return f"{quoted} stars:>={self.cfg.min_stars} created:{start}..{end}"
 
     def _get_client(self) -> httpx.Client:
         if self._client is None:
@@ -95,7 +103,10 @@ class GitHubSource:
 
     def fetch(self) -> list[Item]:
         client = self._get_client()
-        keywords = self.app_config.keywords or ["open source"]
+        # Un gruppo di query per profilo: 4 profili x 3 fasce = 12 richieste,
+        # dentro il limite di 30/minuto. Con una richiesta per keyword sarebbero
+        # 54 e il rate limit taglierebbe la fonte a metà.
+        groups = [p.keywords for p in self.app_config.effective_profiles()]
         bands = self.age_bands()
         # La quota si divide tra le FASCE, non si assegna al miglior punteggio
         # globale: le stelle si accumulano col tempo, quindi ordinare tutto
@@ -109,7 +120,7 @@ class GitHubSource:
         try:
             for band in bands:
                 in_band: dict[str, Item] = {}
-                for keyword in keywords:
+                for keywords in groups:
                     if not first_request:
                         time.sleep(REQUEST_DELAY)
                     first_request = False
@@ -117,7 +128,7 @@ class GitHubSource:
                         resp = client.get(
                             SEARCH_URL,
                             params={
-                                "q": self.search_query(keyword, band),
+                                "q": self.search_query(keywords, band),
                                 "sort": "stars",
                                 "order": "desc",
                                 "per_page": per_query,
@@ -129,7 +140,7 @@ class GitHubSource:
                     except (httpx.HTTPError, ValueError) as exc:
                         # Una query fallita (o un rate limit) non ferma le altre.
                         logger.warning(
-                            "GitHub, keyword %r fascia %s: %s", keyword, band, exc
+                            "GitHub, tema %r fascia %s: %s", keywords, band, exc
                         )
                         continue
                     for repo in repos:

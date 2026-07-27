@@ -19,6 +19,9 @@ sources:
     enabled: true
     lookback_hours: 48
     min_points: 5    # sotto questi punti una storia è rumore
+    # Una richiesta per keyword: col tetto i profili si alternano, quindi si
+    # perde profondità su ogni tema ma nessun tema resta fuori.
+    max_keywords: 8
   - name: github
     type: github
     limit: 30        # quanti repo tenere, presi dal meglio di tutte le keyword
@@ -91,6 +94,7 @@ sources:
     limit: 30
     enabled: true
     hf_kinds: [models, datasets]   # la quota si divide tra i due
+    max_keywords: 6                # x2 tipi = 12 richieste
   # Stack Exchange: l'unica fonte che misura la DOMANDA e non l'offerta. Una
   # domanda votata e senza risposta accettata è un problema che la gente ha e
   # nessuno ha risolto. Gratuita e senza chiave fino a 300 richieste al giorno.
@@ -100,6 +104,7 @@ sources:
     enabled: true
     site: stackoverflow
     max_age_days: 90     # oltre, non è più un segnale emergente
+    max_keywords: 8      # usato solo se `tags` è vuoto
     # I tag vanno elencati a mano: le keyword sono frasi ("ai agents"), i tag di
     # SO sono token con trattini, e indovinare la conversione sbaglia spesso.
     tags:
@@ -119,6 +124,7 @@ sources:
     limit: 20
     enabled: true
     max_age_days: 45     # pubblicati di recente, altrimenti è react e lodash
+    max_keywords: 6      # + una richiesta per pacchetto per i download
   # Lanci di prodotto da Product Hunt (GraphQL v2, token developer gratuito).
   # richiede PRODUCTHUNT_TOKEN in .env: abilitala dopo averlo impostato.
   - name: producthunt
@@ -126,7 +132,54 @@ sources:
     limit: 25        # quanti lanci più recenti
     enabled: false
 
-# Parole chiave per filtrare/cercare le idee e per il punteggio di "fit".
+# PROFILI: i temi del radar, dichiarati da te. Ogni profilo ha le sue keyword,
+# interroga tutte le fonti, e ha un `fit` calcolato a parte — così un'idea può
+# essere centrale per "dev-infra" e irrilevante per "domotica" invece di avere un
+# unico voto medio che non dice niente. Il profilo che vince diventa il
+# macro-tema dell'idea, e il clustering semantico continua a fare i micro-temi
+# dentro ciascuno: la gerarchia a due livelli non va inventata, è già qui.
+#
+# Il costo cresce col numero di profili, non col numero di keyword: le fonti che
+# accettano query complesse (GitHub) interrogano un profilo per volta mettendo le
+# sue keyword in OR — coerente perché sono dello stesso tema, che era il difetto
+# del vecchio OR globale su tutto.
+#
+# `keywords` sotto resta come rete di sicurezza: se `profiles` è vuoto il radar
+# lavora con quell'unico insieme, come faceva prima.
+profiles:
+  - name: ai-agents
+    label: Agenti AI
+    keywords:
+      - "ai agents"
+      - "agentic"
+      - "mcp server"
+      - "tool use"
+      - "multi agent"
+  - name: ai-dev
+    label: Costruire con gli LLM
+    keywords:
+      - "prompt engineering"
+      - "rag"
+      - "llm evaluation"
+      - "fine tuning"
+      - "embeddings"
+  - name: dev-infra
+    label: Dev infra e tooling
+    keywords:
+      - "developer tools"
+      - "self-hosted"
+      - "observability"
+      - "automation"
+  - name: domotica
+    label: Domotica e IoT
+    keywords:
+      - "home automation"
+      - "home assistant"
+      - "smart home"
+      - "esp32"
+
+# Rete di sicurezza se `profiles` è vuoto, e nient'altro: con i profili attivi
+# queste parole non vengono usate.
 keywords:
   - "developer tools"
   - "automation"
@@ -153,11 +206,12 @@ scoring:
   # mostrare. Come moltiplicatore scende a 0.12.
   opportunity_floor: 0.15
   # Soglia minima del composite perché un'idea passi a status "proposed".
-  # RITARATA per la formula a due moltiplicatori: la scala si comprime (sul vero
-  # archivio il massimo passa da 0.65 a 0.46), quindi questo valore non è
-  # confrontabile col precedente 0.5. A 0.32 restano 28 idee sopra soglia su
-  # 1359 — come le 27 di prima, ma senza i mercati chiusi.
-  threshold: 0.32
+  # RITARATA due volte, e il valore non è confrontabile con quelli storici.
+  # Prima per la formula a due moltiplicatori (la scala si comprime: il massimo
+  # sul vero archivio passa da 0.65 a 0.46). Poi per il fit a frasi intere, che
+  # è molto più severo del match lasco di prima. A 0.28 restano ~62 idee sopra
+  # soglia su 1586, tutte reclamate da un profilo.
+  threshold: 0.28
   # Fit minimo perché a un item valga l'insight LLM: sotto, insight euristico
   # (niente 7B). 0.0 = salta solo gli item senza alcun match di keyword;
   # alzala (~0.2) per saltare anche i match deboli e velocizzare ancora i run.

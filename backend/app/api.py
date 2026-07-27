@@ -10,11 +10,13 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from app.appconfig import get_config
 from app.db import get_session, init_db
 from app.models import Idea, IdeaStatus, Run, utcnow
 from app.pipeline import execute_run
 from app.queries import (
     idea_history,
+    ideas_per_profile,
     latest_score_for,
     monitor_stats,
     top_ideas,
@@ -68,6 +70,8 @@ class IdeaOut(BaseModel):
     feasibility: float | None = None
     opportunity: float | None = None
     fit: float | None = None
+    # Profilo (macro-tema) su cui il fit è stato misurato.
+    profile: str | None = None
     why_text: str | None = None
     difficulty: str | None = None
     n_items: int = 0
@@ -205,6 +209,7 @@ def _idea_out(idea: Idea, score, model=IdeaOut):
         feasibility=score.feasibility if score else None,
         opportunity=score.opportunity if score else None,
         fit=score.fit if score else None,
+        profile=score.profile if score else None,
         why_text=score.why_text if score else None,
         difficulty=(score.difficulty.value if score and score.difficulty else None),
         n_items=len(idea.items),
@@ -244,11 +249,13 @@ def list_ideas(
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     include_dismissed: bool = False,
+    profile: str | None = None,
 ) -> list[IdeaOut]:
     """Idee ordinate (pinnate prima, poi composite): filtri e paginazione in SQL.
 
     Default: solo il vivo. Le archiviate si chiedono con ``?status=archived``,
-    le scartate a mano con ``?include_dismissed=true``.
+    le scartate a mano con ``?include_dismissed=true``, e ``?profile=<nome>``
+    mostra il radar dal punto di vista di un tema solo.
     """
     rows = top_ideas(
         session,
@@ -257,6 +264,7 @@ def list_ideas(
         topic_id=topic_id,
         offset=offset,
         include_dismissed=include_dismissed,
+        profile=profile,
     )
     return [_idea_out(idea, score) for idea, score in rows]
 
@@ -311,6 +319,32 @@ def update_idea(
     session.commit()
     session.refresh(idea)
     return _idea_out(idea, latest_score_for(session, idea_id))
+
+
+class ProfileOut(BaseModel):
+    name: str
+    label: str
+    keywords: list[str]
+    n_ideas: int = 0
+
+
+@app.get("/profiles", response_model=list[ProfileOut])
+def list_profiles(session: Session = Depends(get_db)) -> list[ProfileOut]:
+    """I temi configurati, col numero di idee vive che ciascuno rappresenta.
+
+    Serve al frontend per il selettore: i profili vivono in config.yaml, quindi
+    l'unica fonte di verità è il backend.
+    """
+    counts = ideas_per_profile(session)
+    return [
+        ProfileOut(
+            name=p.name,
+            label=p.title,
+            keywords=p.keywords,
+            n_ideas=counts.get(p.name, 0),
+        )
+        for p in get_config().effective_profiles()
+    ]
 
 
 @app.get("/topics", response_model=list[TopicOut])

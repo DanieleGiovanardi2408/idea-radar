@@ -151,15 +151,15 @@ def _record_topic_stats(session: Session, run: Run) -> int:
         if not ideas:
             continue
         composites = [latest[i.id].composite for i in ideas if i.id in latest]
-        session.add(
-            TopicStat(
-                topic_id=topic.id,
-                run_id=run.id,
-                n_ideas=len(ideas),
-                n_items=sum(len(i.items) for i in ideas),
-                avg_composite=(sum(composites) / len(composites)) if composites else 0.0,
-            )
+        # Rifotografare lo stesso run è legittimo (``rescore`` e ``recluster`` lo
+        # fanno): la fotografia si sovrascrive invece di duplicarsi.
+        stat = session.get(TopicStat, (topic.id, run.id)) or TopicStat(
+            topic_id=topic.id, run_id=run.id
         )
+        stat.n_ideas = len(ideas)
+        stat.n_items = sum(len(i.items) for i in ideas)
+        stat.avg_composite = (sum(composites) / len(composites)) if composites else 0.0
+        session.add(stat)
         counted += 1
     session.commit()
     return counted
@@ -290,6 +290,7 @@ def run_pipeline(
                     composite=result.composite,
                     why_text=insight.why_text,
                     difficulty=insight.difficulty,
+                    profile=result.profile,
                 )
             )
             session.commit()
@@ -536,20 +537,23 @@ def _rescore_ideas(
         idea.first_seen = min(i.fetched_at for i in idea.items)
         idea.last_seen = max(i.fetched_at for i in idea.items)
         session.add(idea)
-        session.add(
-            Score(
-                idea_id=idea.id,
-                run_id=run.id,
-                heat=result.heat,
-                credibility=result.credibility,
-                feasibility=result.feasibility,
-                opportunity=result.opportunity,
-                fit=result.fit,
-                composite=result.composite,
-                why_text=insight.why_text,
-                difficulty=insight.difficulty,
-            )
-        )
+        # Lo score per (idea, run) può già esistere: ``rebuild-ideas`` cancella
+        # tutto prima, ma ``rescore`` gira su un archivio intatto e lì un INSERT
+        # cieco viola la chiave primaria composta. Si aggiorna in luogo.
+        score = session.get(Score, (idea.id, run.id))
+        if score is None:
+            score = Score(idea_id=idea.id, run_id=run.id, composite=0.0, heat=0.0,
+                          credibility=0.0, feasibility=0.0, opportunity=0.0, fit=0.0)
+        score.heat = result.heat
+        score.credibility = result.credibility
+        score.feasibility = result.feasibility
+        score.opportunity = result.opportunity
+        score.fit = result.fit
+        score.composite = result.composite
+        score.why_text = insight.why_text
+        score.difficulty = insight.difficulty
+        score.profile = result.profile
+        session.add(score)
         written += 1
     session.commit()
     return written
@@ -752,6 +756,44 @@ def execute_rebuild_ideas(
             cohesion_floor=cohesion_floor,
             on_progress=on_progress,
         )
+
+
+def execute_rescore(on_progress: Callable[[str], None] | None = None) -> dict:
+    """Ricalcola i punteggi di TUTTE le idee con la configurazione attuale.
+
+    Serve ogni volta che cambia lo scoring — pesi, soglie, floor, o le keyword
+    dei profili: un run normale scora solo le idee che hanno ricevuto un item
+    nuovo, quindi tutto il resto dell'archivio resta coi numeri vecchi e il
+    radar mostra una classifica calcolata con regole che non esistono più.
+
+    Non tocca clustering né topic e non chiama il modello: gli insight già
+    prodotti si riusano. È il fratello leggero di ``rebuild-ideas``, che invece
+    rifà anche le idee.
+    """
+    init_db()
+    config = get_config()
+    with run_lock(), get_session() as session:
+        _, insights = _snapshot_ideas(session)
+        last_run = session.exec(
+            select(Run).where(Run.status == RunStatus.DONE).order_by(Run.id.desc())
+        ).first()
+        if last_run is None:
+            return {"n_scored": 0, "scored_on_run": None, "n_profiled": 0}
+        n_scored = _rescore_ideas(
+            session, config, last_run, insights, on_progress=on_progress
+        )
+        _record_topic_stats(session, last_run)
+        profiled = session.exec(
+            select(Score).where(
+                Score.run_id == last_run.id,
+                Score.profile.is_not(None),  # type: ignore[union-attr]
+            )
+        ).all()
+        return {
+            "n_scored": n_scored,
+            "scored_on_run": last_run.id,
+            "n_profiled": len(profiled),
+        }
 
 
 def execute_heal(

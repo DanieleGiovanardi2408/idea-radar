@@ -48,6 +48,7 @@ def top_ideas(
     topic_id: int | None = None,
     offset: int = 0,
     include_dismissed: bool = False,
+    profile: str | None = None,
 ) -> list[tuple[Idea, Score | None]]:
     """Idee con il loro ultimo score: pinnate prima, poi composite decrescente.
 
@@ -73,6 +74,10 @@ def top_ideas(
         stmt = stmt.where(Idea.status == status)
     if topic_id is not None:
         stmt = stmt.where(Idea.topic_id == topic_id)
+    if profile is not None:
+        # Il profilo vive sullo score (è il tema su cui il fit è stato misurato):
+        # filtrarci significa "il radar visto da questo tema".
+        stmt = stmt.where(Score.profile == profile)
     if not include_dismissed:
         stmt = stmt.where(Idea.dismissed_at.is_(None))  # type: ignore[union-attr]
     stmt = (
@@ -150,6 +155,26 @@ def topics_overview(
     # il punteggio migliore, così l'ordine è stabile e utile.
     overview.sort(key=lambda t: (t[key], t["top_composite"]), reverse=True)
     return overview
+
+
+def ideas_per_profile(session: Session) -> dict[str, int]:
+    """Quante idee vive rappresenta ciascun profilo, secondo l'ultimo score."""
+    subq = _latest_score_run_subq()
+    stmt = (
+        select(Score.profile, func.count())
+        .join(
+            subq,
+            (Score.idea_id == subq.c.idea_id) & (Score.run_id == subq.c.run_id),
+        )
+        .join(Idea, Idea.id == Score.idea_id)
+        .where(
+            Idea.status != IdeaStatus.ARCHIVED,
+            Idea.dismissed_at.is_(None),  # type: ignore[union-attr]
+            Score.profile.is_not(None),  # type: ignore[union-attr]
+        )
+        .group_by(Score.profile)
+    )
+    return {name: count for name, count in session.exec(stmt).all()}
 
 
 def topic_trends(session: Session, max_runs: int = 12) -> list[dict]:

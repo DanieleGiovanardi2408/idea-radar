@@ -75,11 +75,14 @@ def test_bands_are_contiguous_and_start_from_today() -> None:
     assert messy.age_bands() == [(0, 90), (90, 270), (270, 540)]
 
 
-def test_one_query_per_keyword_and_band() -> None:
-    """Coprire più fasce moltiplica lo spazio esplorato.
+def test_one_query_per_profile_and_band() -> None:
+    """Un gruppo di query per PROFILO, non per keyword.
 
-    Con una fascia sola la stessa query ridà gli stessi repo a ogni run: dopo la
-    prima passata la fonte non scopre più niente.
+    Coprire più fasce moltiplica lo spazio esplorato — con una fascia sola la
+    stessa query ridà gli stessi repo a ogni run — ma una richiesta per keyword
+    per fascia sfonderebbe il rate limit (18 keyword x 3 fasce = 54, su un
+    limite di 30/minuto). Le keyword di un profilo vanno in OR: legittimo,
+    perché sono sinonimi dello stesso tema.
     """
     seen: list[str] = []
 
@@ -89,8 +92,39 @@ def test_one_query_per_keyword_and_band() -> None:
 
     _source(handler, created_windows=[90, 270, 540]).fetch()
 
-    assert len(seen) == 6  # 2 keyword x 3 fasce
-    assert sum(1 for q in seen if '"ai agents"' in q) == 3
+    assert len(seen) == 3  # un profilo implicito x 3 fasce
+    assert all('"ai agents" OR "self-hosted"' in q for q in seen)
+
+
+def test_profiles_become_separate_query_groups() -> None:
+    """Con più profili, ognuno ha la sua query: nessuno schiaccia gli altri.
+
+    Era il difetto del vecchio OR globale, che mescolava temi diversi nella
+    stessa domanda e lasciava vincere il termine più popolare.
+    """
+    from app.appconfig import ProfileConfig
+
+    config = _app_config()
+    config.profiles = [
+        ProfileConfig(name="agenti", keywords=["ai agents", "mcp server"]),
+        ProfileConfig(name="domotica", keywords=["home assistant"]),
+    ]
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.params["q"])
+        return httpx.Response(200, json={"items": []})
+
+    GitHubSource(
+        _cfg(created_windows=[90]),
+        config,
+        Settings(),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    ).fetch()
+
+    assert len(seen) == 2  # due profili, una fascia
+    assert any('"ai agents" OR "mcp server"' in q for q in seen)
+    assert any('"home assistant"' in q and "ai agents" not in q for q in seen)
 
 
 def test_the_quota_is_split_across_bands_not_won_by_the_oldest() -> None:
@@ -117,14 +151,26 @@ def test_the_quota_is_split_across_bands_not_won_by_the_oldest() -> None:
 
 
 def test_a_failing_query_does_not_kill_the_others() -> None:
-    """Rate limit su una keyword: le altre devono comunque portare a casa roba."""
+    """Rate limit su un tema: gli altri devono comunque portare a casa roba."""
+    from app.appconfig import ProfileConfig
+
+    config = _app_config()
+    config.profiles = [
+        ProfileConfig(name="agenti", keywords=["ai agents"]),
+        ProfileConfig(name="infra", keywords=["self-hosted"]),
+    ]
 
     def handler(request: httpx.Request) -> httpx.Response:
         if "ai agents" in request.url.params["q"]:
             return httpx.Response(403, json={"message": "rate limit"})
         return httpx.Response(200, json={"items": [_repo(7, 120, "d/quattro")]})
 
-    items = _source(handler, created_windows=[540]).fetch()
+    items = GitHubSource(
+        _cfg(created_windows=[540]),
+        config,
+        Settings(),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    ).fetch()
 
     assert [i.external_id for i in items] == ["7"]
 

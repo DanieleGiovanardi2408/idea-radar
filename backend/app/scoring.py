@@ -54,6 +54,8 @@ class ScoreResult(BaseModel):
     fit: float
     composite: float
     status: IdeaStatus
+    # Il profilo su cui il `fit` è stato misurato: il macro-tema dell'idea.
+    profile: str | None = None
 
 
 def _clamp(x: float) -> float:
@@ -165,19 +167,31 @@ def _saturation(item: Item) -> float:
 def _fit(item: Item, keywords: list[str]) -> float:
     """Rilevanza per keyword con match su *parole intere* (no sottostringhe).
 
-    Una keyword conta come matchata se una qualsiasi delle sue parole compare
-    come token intero nel testo (così 'ai' non matcha 'certain').
+    Una keyword di più parole conta come matchata solo se compaiono TUTTE come
+    token interi. Prima bastava una qualsiasi, e su una keyword come "home
+    automation" significava "home" OPPURE "automation": qualunque articolo che
+    parlasse di automazione prendeva punti come se fosse di domotica. Con i
+    profili il difetto si vedeva subito — un profilo "domotica" che reclamava
+    articoli di disaster recovery.
+
+    Le parole intere restano il criterio (così 'ai' non matcha 'certain').
     """
     if not keywords:
         return 0.5
     haystack = f"{item.title} {item.text or ''}".lower()
     tokens = set(_WORD_RE.findall(haystack))
-    matched = sum(
-        1
-        for kw in keywords
-        if any(word in tokens for word in _WORD_RE.findall(kw.lower()))
-    )
-    denom = min(len(keywords), 3)
+    matched = 0
+    for keyword in keywords:
+        words = _WORD_RE.findall(keyword.lower())
+        if words and all(word in tokens for word in words):
+            matched += 1
+    # Due keyword matchate valgono "in pieno tema", una sola "lo sfiora".
+    # Il denominatore era 3, tarato su un match lasco: con le frasi intere serviva
+    # centrare tre keyword su cinque, cosa che quasi nessun item fa — sull'archivio
+    # reale le idee sopra soglia crollavano da 55 a 3. E dentro un profilo le
+    # keyword sono sinonimi dello stesso tema, quindi pretenderne tre è chiedere
+    # che l'autore dell'articolo le usi tutte.
+    denom = min(len(keywords), 2)
     return min(1.0, matched / denom)
 
 
@@ -189,6 +203,35 @@ def keyword_fit(item: Item, keywords: list[str]) -> float:
     la pena spendere il 7B su un item o se è del tutto fuori tema.
     """
     return _fit(item, keywords)
+
+
+def profile_fits(item: Item, config: AppConfig) -> dict[str, float]:
+    """Il fit dell'item per OGNI profilo configurato.
+
+    Un unico fit medio su tutte le keyword del radar non dice niente: un'idea di
+    domotica misurata anche su "prompt engineering" prende un voto mediocre che
+    non distingue "fuori tema" da "a metà". Separando per profilo si ottiene la
+    risposta giusta — centrale per uno, irrilevante per gli altri.
+    """
+    return {p.name: _fit(item, p.keywords) for p in config.effective_profiles()}
+
+
+def best_profile(item: Item, config: AppConfig) -> tuple[str | None, float]:
+    """(profilo, fit) del tema che rappresenta meglio l'item, o ``(None, 0.0)``.
+
+    Il profilo è ``None`` quando NESSUN tema lo reclama. Ritornare comunque un
+    nome sarebbe una bugia comoda: col ``max`` su tutti fit a zero vinceva sempre
+    il primo profilo di ``config.yaml``, e sull'archivio reale 1371 idee su 1586
+    finivano etichettate "ai-agents" senza avere niente a che fare con gli agenti.
+
+    A parità di fit non nullo vince l'ordine di ``config.yaml``: i profili sono
+    scritti a mano, quindi il primo è il più importante per chi li ha scritti.
+    """
+    fits = profile_fits(item, config)
+    if not fits:
+        return None, 0.0
+    name, fit = max(fits.items(), key=lambda kv: kv[1])
+    return (name, fit) if fit > 0 else (None, 0.0)
 
 
 def _recency(item: Item) -> float:
@@ -219,7 +262,9 @@ def score_item(
     # Opportunità = è recente E non è già un mercato chiuso.
     opportunity = _clamp(0.5 * _recency(item) + 0.5 * (1.0 - saturation))
 
-    fit = _fit(item, config.keywords)
+    # Il fit è quello del profilo che rappresenta meglio l'item: è la sua
+    # rilevanza *nel tema giusto*, non una media su temi che non lo riguardano.
+    profile, fit = best_profile(item, config)
 
     quality_values = {
         "heat": heat,
@@ -260,4 +305,5 @@ def score_item(
         fit=fit,
         composite=composite,
         status=status,
+        profile=profile,
     )

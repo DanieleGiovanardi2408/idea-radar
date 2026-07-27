@@ -48,23 +48,35 @@ def get_engine() -> Engine:
 # Colonne aggiunte DOPO la prima release: ``create_all`` crea le tabelle nuove
 # complete ma non altera quelle esistenti, quindi su un DB già in uso vanno
 # aggiunte a mano. SQLite supporta solo ADD COLUMN: per questo caso basta.
-_IDEA_USER_COLUMNS: dict[str, str] = {
-    "pinned": "BOOLEAN NOT NULL DEFAULT 0",
-    "dismissed_at": "TIMESTAMP",
-    "seen_at": "TIMESTAMP",
-    "note": "TEXT",
+_ADDED_COLUMNS: dict[str, dict[str, str]] = {
+    "ideas": {
+        "pinned": "BOOLEAN NOT NULL DEFAULT 0",
+        "dismissed_at": "TIMESTAMP",
+        "seen_at": "TIMESTAMP",
+        "note": "TEXT",
+    },
+    "scores": {
+        # Profilo (macro-tema) su cui è stato misurato il fit. Gli score vecchi
+        # restano a NULL: nessun profilo è meglio di uno inventato.
+        "profile": "VARCHAR",
+    },
 }
 
 
 def _migrate(engine: Engine) -> None:
     """Migrazione additiva: aggiunge le colonne mancanti alle tabelle esistenti."""
     with engine.connect() as conn:
-        existing = {
-            row[1] for row in conn.exec_driver_sql("PRAGMA table_info(ideas)")
-        }
-        for column, ddl in _IDEA_USER_COLUMNS.items():
-            if existing and column not in existing:
-                conn.exec_driver_sql(f"ALTER TABLE ideas ADD COLUMN {column} {ddl}")
+        for table, columns in _ADDED_COLUMNS.items():
+            existing = {
+                row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})")
+            }
+            if not existing:  # tabella non ancora creata: ci pensa create_all
+                continue
+            for column, ddl in columns.items():
+                if column not in existing:
+                    conn.exec_driver_sql(
+                        f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"
+                    )
         conn.commit()
 
 

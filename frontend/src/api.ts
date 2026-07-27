@@ -2,6 +2,7 @@ import type {
   IdeaDetailOut,
   IdeaOut,
   PatchIdeaBody,
+  ProfileOut,
   RunOut,
   StatsOut,
   TopicOut,
@@ -16,17 +17,20 @@ async function get<T>(path: string): Promise<T> {
 
 export const api = {
   health: () => get<{ status: string }>('/health'),
+  profiles: () => get<ProfileOut[]>('/profiles'),
   ideas: (params?: {
     status?: string
     topic_id?: number
     offset?: number
     include_dismissed?: boolean
+    profile?: string
   }) => {
     const q = new URLSearchParams()
     if (params?.status) q.set('status', params.status)
     if (params?.topic_id !== undefined) q.set('topic_id', String(params.topic_id))
     if (params?.offset !== undefined) q.set('offset', String(params.offset))
     if (params?.include_dismissed) q.set('include_dismissed', 'true')
+    if (params?.profile) q.set('profile', params.profile)
     const qs = q.toString()
     return get<IdeaOut[]>(`/ideas${qs ? `?${qs}` : ''}`)
   },

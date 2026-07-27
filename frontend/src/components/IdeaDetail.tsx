@@ -164,6 +164,14 @@ export function IdeaDetail({
                       difficoltà: {idea.difficulty}
                     </Badge>
                   )}
+                  {/* Il tema (profilo) prima del topic: è il macro, dichiarato
+                      in config.yaml, mentre il topic è il micro trovato dagli
+                      embedding. Assente quando nessun tema reclama l'idea. */}
+                  {idea.profile && (
+                    <Badge className="bg-signal/10 text-signal ring-signal/25">
+                      {idea.profile}
+                    </Badge>
+                  )}
                   {idea.topic_label && (
                     <Badge className="bg-white/[0.04] text-slate-300 ring-white/10">
                       {idea.topic_label}

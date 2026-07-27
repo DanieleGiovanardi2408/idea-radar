@@ -85,7 +85,8 @@ class StackExchangeSource:
         """
         if self.cfg.tags:
             return self.cfg.tags
-        return [k.strip().replace(" ", "-") for k in self.app_config.keywords if k.strip()]
+        derived = self.app_config.search_keywords(self.cfg.max_keywords)
+        return [k.strip().replace(" ", "-") for k in derived if k.strip()]
 
     def query_params(self, tag: str, per_query: int, today: datetime | None = None) -> dict:
         today = today or datetime.now(timezone.utc)

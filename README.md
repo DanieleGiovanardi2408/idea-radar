@@ -72,6 +72,18 @@ Two gates compress the scale — the top score on a real 1359-idea archive goes 
 
 Above `scoring.threshold`, an idea is promoted to `proposed`. Every parameter lives in [`backend/config.yaml`](backend/config.yaml).
 
+### Profiles: the themes you declare
+
+`fit` is measured **per profile**, not against one global keyword list. A profile is a named theme in [`backend/config.yaml`](backend/config.yaml) — "Agenti AI", "Domotica e IoT" — with its own keywords, and every source queries all of them.
+
+The reason is that a single averaged fit answers the wrong question: an idea about home automation, measured against "prompt engineering" too, gets a mediocre score that can't distinguish *off-topic* from *half-relevant*. Per profile the answer is sharp — central to one, irrelevant to the others — and the winning profile becomes the idea's **macro-theme**, declared by you rather than guessed by a model, with semantic clustering still providing the micro-themes inside it.
+
+An idea no profile claims gets `profile: null`, not "the first one in the list". That distinction mattered: with `max()` over all-zero fits the first profile always won, and on the real archive 1371 ideas out of 1586 came out labelled "ai-agents" without having anything to do with agents.
+
+Cost grows with the number of *profiles*, not keywords: GitHub queries one profile at a time with its keywords in OR — legitimate, since they're synonyms of one theme, which is exactly what the old global OR got wrong. Sources that pay one request per keyword take a `max_keywords` cap, and profiles are **interleaved** so a low cap reduces the depth of every theme instead of making the last ones invisible.
+
+Changing profiles or any scoring knob makes every stored score stale, since a normal run only scores ideas that received a new item. `uv run idea-radar rescore` recomputes all of them in seconds — no clustering, no model calls.
+
 ### Aggregation & topics
 
 Local embeddings do two jobs with one mechanism: merge different signals that tell the same story into a single idea (deduplication), and group related ideas into topics. Because topics persist between runs, a theme that grows from one run to the next becomes a **trend** — the core of the Trend view.
@@ -91,7 +103,7 @@ Thresholds are calibrated against a ground truth of items that appeared on two s
 
 The interface is a single-page "radar room": a dark, glass-panelled console with a phosphor-green accent, live sweep animation, and [Space Grotesk](https://fonts.google.com/specimen/Space+Grotesk) throughout. Data and models stay entirely local.
 
-- **Radar** — every idea as a blip on a polar scope. Distance from the centre is `1 − composite`, so the best opportunities sit *on your heading*, near the middle; a rotating sweep makes each blip flash as it passes. Below the scope, the same ideas as a ranked, searchable list. Each idea can be **pinned** (kept on top and shielded from auto-archiving), **dismissed** (hidden until you ask for it back), and **annotated** with a private note — actions that persist across runs and are reachable by deep link (`?idea=<id>`).
+- **Radar** — every idea as a blip on a polar scope, filterable by **theme** (the profiles from `config.yaml`). Distance from the centre is `1 − composite`, so the best opportunities sit *on your heading*, near the middle; a rotating sweep makes each blip flash as it passes. Below the scope, the same ideas as a ranked, searchable list. Each idea can be **pinned** (kept on top and shielded from auto-archiving), **dismissed** (hidden until you ask for it back), and **annotated** with a private note — actions that persist across runs and are reachable by deep link (`?idea=<id>`).
 - **Topic** — ideas grouped by theme, each topic expandable into its members (fetched per topic, so the accordion isn't limited by the paginated idea list). Sortable by score, size or recency, and by default it hides themes holding a single idea — with calibrated thresholds those are the majority, they're real, but scrolling hundreds of them is noise.
 - **Trend** — what's moving between runs, with a hover-tooltip area chart per topic and the biggest mover highlighted; every entry links through to its theme. (Needs at least two runs; with one, deltas are zero by construction.)
 - **Monitor** — live pipeline progress: ingestion funnel, per-source counts, active sources, and a full run history where each run expands to its per-source outcome — the place to notice a source that quietly stopped bringing anything. While a run is in progress the whole view polls every 2s.
@@ -127,7 +139,7 @@ The interface is a single-page "radar room": a dark, glass-panelled console with
 | Layer | Stack |
 |-------|-------|
 | Backend | Python 3.11+, [uv](https://docs.astral.sh/uv/), FastAPI + Uvicorn, SQLModel (SQLite), Typer CLI, pydantic-settings, pytest |
-| Frontend | Vite + React 19 + TypeScript, Tailwind CSS v4, React Router, TanStack Query, Space Grotesk |
+| Frontend | Vite + React 19 + TypeScript, Tailwind CSS v4, React Router, TanStack Query, Vitest + Testing Library, Space Grotesk |
 | Intelligence | Ollama — `qwen2.5:7b` (insights), `nomic-embed-text` (embeddings) |
 | Sources | Hacker News (Firebase + Algolia backfill), GitHub (Search API, age-banded), Hugging Face Hub, Stack Exchange, npm registry, arXiv (4 categories), Product Hunt (GraphQL v2), 20 RSS/Atom feeds — 70 HTTP requests per run, all free, no key needed beyond a GitHub token |
 
@@ -177,8 +189,11 @@ uv run idea-radar ideas       # top ideas (--proposed for above-threshold only)
 uv run idea-radar topics      # ideas grouped by theme
 uv run idea-radar trends      # what's rising and falling between runs
 uv run idea-radar stats       # ingestion funnel
-uv run pytest                 # tests
+uv run idea-radar rescore     # recompute all scores after a config change
+uv run pytest                 # tests (backend)
 ```
+
+The frontend has its own suite now: `cd frontend && npm test`. It exists because three defects reached the user before it did — a pin that didn't react, a note discarded in silence, and a read-only detail drawer — all of which a component test catches in a second.
 
 `digest` turns the radar from something you have to remember to open into something that reports to you:
 
@@ -315,7 +330,7 @@ Recently shipped: semantic deduplication end-to-end · per-idea insight cache ·
 
 Also shipped: **drift-proof clustering** — merges decided member-by-member (single link + cohesion) instead of on the centroid, with thresholds calibrated against a ground truth of cross-source duplicates · **`rebuild-ideas`** — re-aggregates the stored archive under new thresholds, preserving items, engagement history, user actions and paid-for insights · **honest trends** — a topic's `avg_composite` is measured on each idea's latest known score, so a run with nothing new draws a flat line instead of a fake crash to zero · **arXiv actually collecting** — it was requesting `http`, getting a redirect the Atom parser then choked on, and failing invisibly because a source that fails last never reached the run record · **a centroid index reused for a whole run** instead of re-reading every idea for every item: 66s → 4s on the clustering step of a 130-item run, measured on a 1300-idea archive.
 
-And: **three new collectors** — Hugging Face (likes and downloads, so measured heat), Stack Exchange (the demand axis, which was missing entirely) and npm (new packages before they reach HN, ranked on weekly downloads because the registry's own popularity scores come back as 1.0 for everything) · **a GitHub collector that actually looks for rising repos** — plus 20 feeds and 4 arXiv categories, roughly doubling the intake · **opportunity as a gate, not an addend** — the scoring change that finally makes the opening claim of this README true · **`heal`** for the sediment the incremental pipeline can't revisit · **`digest`** as a markdown briefing · **run history with per-source outcomes** in the Monitor · **Topic view that scales** to hundreds of themes · **Trend → Topic drill-down** · HTML entities stripped at collection (Hacker News serves escaped markup, and it was reaching the summaries).
+And: **profiles** — per-theme relevance, so the macro/micro hierarchy is declared instead of invented · **three new collectors** — Hugging Face (likes and downloads, so measured heat), Stack Exchange (the demand axis, which was missing entirely) and npm (new packages before they reach HN, ranked on weekly downloads because the registry's own popularity scores come back as 1.0 for everything) · **a GitHub collector that actually looks for rising repos** — plus 20 feeds and 4 arXiv categories, roughly doubling the intake · **opportunity as a gate, not an addend** — the scoring change that finally makes the opening claim of this README true · **`heal`** for the sediment the incremental pipeline can't revisit · **`digest`** as a markdown briefing · **run history with per-source outcomes** in the Monitor · **Topic view that scales** to hundreds of themes · **Trend → Topic drill-down** · HTML entities stripped at collection (Hacker News serves escaped markup, and it was reaching the summaries).
 
 Next:
 

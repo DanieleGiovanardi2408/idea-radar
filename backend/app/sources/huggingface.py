@@ -100,7 +100,7 @@ class HuggingFaceSource:
 
     def fetch(self) -> list[Item]:
         client = self._get_client()
-        keywords = self.app_config.keywords or ["agent"]
+        keywords = self.app_config.search_keywords(self.cfg.max_keywords) or ["agent"]
         kinds = self.kinds()
         per_kind = max(1, self.cfg.limit // len(kinds))
         per_query = max(5, per_kind)

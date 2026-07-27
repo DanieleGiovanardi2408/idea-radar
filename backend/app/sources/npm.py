@@ -100,7 +100,7 @@ class NpmSource:
 
     def fetch(self) -> list[Item]:
         client = self._get_client()
-        keywords = self.app_config.keywords or ["cli"]
+        keywords = self.app_config.search_keywords(self.cfg.max_keywords) or ["cli"]
         per_query = max(5, self.cfg.limit // max(len(keywords), 1) * 2)
         cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
             days=self.cfg.max_age_days

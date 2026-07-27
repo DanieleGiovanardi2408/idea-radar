@@ -119,6 +119,9 @@ class Score(SQLModel, table=True):
     composite: float
     why_text: str | None = None
     difficulty: Difficulty | None = None
+    # Profilo (macro-tema) su cui è stato misurato il `fit`. Nullable: gli score
+    # scritti prima dei profili non ne hanno uno, e non si inventa.
+    profile: str | None = Field(default=None, index=True)
 
 
 class ItemStat(SQLModel, table=True):

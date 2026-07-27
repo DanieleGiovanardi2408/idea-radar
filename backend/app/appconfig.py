@@ -44,6 +44,10 @@ class SourceConfig(BaseModel):
     # Solo per type: stackexchange/npm — età massima (giorni) di ciò che conta
     # come "nuovo". Oltre, non è più un segnale emergente.
     max_age_days: int = 60
+    # Tetto alle keyword interrogate, per le fonti che costano una richiesta a
+    # keyword. 0 = nessun tetto. I profili si alternano, quindi un tetto basso
+    # riduce la profondità di ogni tema senza farne sparire nessuno.
+    max_keywords: int = 0
 
 
 class ClusteringConfig(BaseModel):
@@ -66,7 +70,7 @@ class ClusteringConfig(BaseModel):
 
 class ScoringConfig(BaseModel):
     weights: dict[str, float] = Field(default_factory=dict)
-    threshold: float = 0.32
+    threshold: float = 0.28
     # Quanto "sopravvive" un'idea del tutto fuori tema (fit=0) o già satura
     # (opportunity=0). Sono due moltiplicatori, non addendi:
     # composite = quality * gate(fit) * gate(opportunity).
@@ -121,9 +125,41 @@ class LifecycleConfig(BaseModel):
     archive_after_days: float = 14.0
 
 
+class ProfileConfig(BaseModel):
+    """Un tema del radar: il suo nome e le parole che lo definiscono.
+
+    I profili sono l'unità di *rilevanza*: il fit si calcola per profilo, quindi
+    un'idea può essere centrale per uno e fuori tema per un altro invece di
+    ricevere un unico voto medio. Il profilo vincente è anche il macro-tema
+    dell'idea, dichiarato in configurazione e non indovinato da un modello.
+    """
+
+    name: str  # identificatore stabile, usato nelle API e nel DB
+    label: str = ""  # come si legge nella UI; se vuoto si usa `name`
+    keywords: list[str] = Field(default_factory=list)
+
+    @property
+    def title(self) -> str:
+        return self.label or self.name
+
+    @field_validator("keywords")
+    @classmethod
+    def _non_empty(cls, v: list[str]) -> list[str]:
+        cleaned = [k.strip() for k in v if k.strip()]
+        if not cleaned:
+            raise ValueError("un profilo senza keyword non può calcolare il fit")
+        return cleaned
+
+
+# Nome del profilo implicito quando `profiles` non è configurato: il radar si
+# comporta come prima, con un tema solo che raccoglie tutte le keyword globali.
+IMPLICIT_PROFILE = "tutto"
+
+
 class AppConfig(BaseModel):
     sources: list[SourceConfig] = Field(default_factory=list)
     keywords: list[str] = Field(default_factory=list)
+    profiles: list[ProfileConfig] = Field(default_factory=list)
     scoring: ScoringConfig
     clustering: ClusteringConfig = Field(default_factory=ClusteringConfig)
     scheduling: SchedulingConfig = Field(default_factory=SchedulingConfig)
@@ -131,6 +167,44 @@ class AppConfig(BaseModel):
 
     def enabled_sources(self) -> list[SourceConfig]:
         return [s for s in self.sources if s.enabled]
+
+    def effective_profiles(self) -> list[ProfileConfig]:
+        """I profili con cui lavorare: quelli configurati, o uno implicito.
+
+        Senza profili il radar resta monotematico come prima — è la via di fuga
+        che tiene funzionante una configurazione vecchia senza toccarla.
+        """
+        if self.profiles:
+            return self.profiles
+        return [
+            ProfileConfig(
+                name=IMPLICIT_PROFILE,
+                label="Tutto",
+                keywords=self.keywords or ["software"],
+            )
+        ]
+
+    def search_keywords(self, limit: int = 0) -> list[str]:
+        """Le parole con cui interrogare le fonti che cercano per keyword.
+
+        I profili si **alternano** invece di essere concatenati: con un tetto di
+        8 parole si prendono le prime due di ciascun profilo, non le otto del
+        primo. Le fonti che costano una richiesta per keyword hanno bisogno di un
+        tetto (18 keyword × 3 fasce su GitHub sarebbero 54 richieste, oltre il
+        rate limit), e un tetto che tagli via gli ultimi profili renderebbe quei
+        temi invisibili.
+
+        ``limit=0`` significa nessun tetto. L'ordine è stabile e senza duplicati.
+        """
+        profiles = self.effective_profiles()
+        ordered: dict[str, None] = {}
+        depth = max((len(p.keywords) for p in profiles), default=0)
+        for index in range(depth):
+            for profile in profiles:
+                if index < len(profile.keywords):
+                    ordered.setdefault(profile.keywords[index], None)
+        keywords = list(ordered)
+        return keywords[:limit] if limit > 0 else keywords
 
 
 def load_config(path: Path | None = None) -> AppConfig:

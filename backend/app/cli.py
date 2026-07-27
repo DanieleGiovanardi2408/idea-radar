@@ -17,6 +17,7 @@ from app.healing import (
 from app.models import IdeaStatus, utcnow
 from app.pipeline import (
     execute_heal,
+    execute_rescore,
     execute_preview_rebuild,
     execute_rebuild_ideas,
     execute_recluster,
@@ -165,6 +166,31 @@ def digest(
         typer.echo(f"  in cima: {headline}")
     else:
         typer.echo("  nessuna idea nuova sopra soglia in questa finestra.")
+
+
+@app.command()
+def rescore() -> None:
+    """Ricalcola i punteggi di tutte le idee con la configurazione attuale.
+
+    Da lanciare dopo aver cambiato pesi, soglie o le keyword dei profili: un run
+    normale scora solo le idee che hanno ricevuto un item nuovo, quindi il resto
+    dell'archivio resterebbe con una classifica calcolata su regole che non
+    esistono più. Non tocca idee e topic e non chiama il modello.
+    """
+    typer.echo("Ricalcolo dei punteggi…")
+    try:
+        summary = execute_rescore(on_progress=_show)
+    except RunLockBusy:
+        typer.echo("Un run è in corso: riprova a run finito.")
+        raise typer.Exit(1)
+    typer.echo("")
+    if not summary["n_scored"]:
+        typer.echo("Nessun run completato in archivio: serve prima un run.")
+        return
+    typer.echo(
+        f"Fatto — {summary['n_scored']} idee riscorate sul run "
+        f"#{summary['scored_on_run']}, {summary['n_profiled']} con un tema."
+    )
 
 
 @app.command()

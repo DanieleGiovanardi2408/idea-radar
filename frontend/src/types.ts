@@ -20,6 +20,9 @@ export type IdeaOut = {
   feasibility: number | null
   opportunity: number | null
   fit: number | null
+  /** Profilo (macro-tema) su cui il fit è stato misurato; null se nessun tema
+   *  reclama l'idea. */
+  profile: string | null
   why_text: string | null
   difficulty: string | null
   n_items: number
@@ -111,4 +114,12 @@ export type StatsOut = {
   items_by_source: Record<string, number>
   last_run: RunOut | null
   recent_runs: RunOut[]
+}
+
+/** Un tema del radar, dichiarato in config.yaml sul backend. */
+export interface ProfileOut {
+  name: string
+  label: string
+  keywords: string[]
+  n_ideas: number
 }

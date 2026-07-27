@@ -36,16 +36,30 @@ function liveInterval(running: boolean): number | false {
   return running ? LIVE_MS : false
 }
 
-export function useIdeas(opts?: { includeDismissed?: boolean; enabled?: boolean }) {
+export function useIdeas(opts?: {
+  includeDismissed?: boolean
+  enabled?: boolean
+  /** Nome del profilo: mostra il radar dal punto di vista di un tema solo. */
+  profile?: string | null
+}) {
   const running = useIsRunning()
   const includeDismissed = opts?.includeDismissed ?? false
+  const profile = opts?.profile ?? null
   return useQuery({
-    queryKey: ['ideas', { includeDismissed }],
+    queryKey: ['ideas', { includeDismissed, profile }],
     queryFn: () =>
-      api.ideas(includeDismissed ? { include_dismissed: true } : undefined),
+      api.ideas({
+        ...(includeDismissed ? { include_dismissed: true } : {}),
+        ...(profile ? { profile } : {}),
+      }),
     enabled: opts?.enabled ?? true,
     refetchInterval: liveInterval(running),
   })
+}
+
+/** I temi configurati sul backend (config.yaml è l'unica fonte di verità). */
+export function useProfiles() {
+  return useQuery({ queryKey: ['profiles'], queryFn: api.profiles })
 }
 
 export type TopicOrder = 'top_composite' | 'n_ideas' | 'last_seen'

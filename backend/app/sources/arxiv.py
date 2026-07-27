@@ -66,7 +66,7 @@ class ArxivSource:
         """
         if self.cfg.categories:
             return " OR ".join(f"cat:{cat}" for cat in self.cfg.categories)
-        keywords = self.app_config.keywords or ["software"]
+        keywords = self.app_config.search_keywords() or ["software"]
         return " OR ".join(f'all:"{kw}"' for kw in keywords)
 
     def _get_client(self) -> httpx.Client:

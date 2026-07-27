@@ -76,7 +76,9 @@ class HnAlgoliaSource:
                     - timedelta(hours=self.cfg.lookback_hours)
                 ).timestamp()
             )
-            keywords = self.app_config.keywords or ["open source"]
+            keywords = self.app_config.search_keywords(self.cfg.max_keywords) or [
+                "open source"
+            ]
             seen: dict[str, Item] = {}
             for index, keyword in enumerate(keywords):
                 if index > 0:
