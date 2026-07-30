@@ -142,6 +142,7 @@ def _heat(
     """Heat "a delta" dove possibile, euristica dove la storia non c'è ancora."""
     profile = profile_for(item.source)
     cap = profile.velocity_cap
+    heat = None
     if observations and profile.live_counter:
         measured = _delta_velocity(
             observations,
@@ -149,8 +150,24 @@ def _heat(
             min_span_hours=config.scoring.heat_min_span_hours,
         )
         if measured is not None:
-            return _saturate(measured, cap)
-    return _saturate(_velocity(item), cap)
+            heat = _saturate(measured, cap)
+    if heat is None:
+        heat = _saturate(_velocity(item), cap)
+    return max(heat, _pypi_heat(item, config))
+
+
+def _pypi_heat(item: Item, config: AppConfig) -> float:
+    """Il canale dell'enricher: trazione del pacchetto citato (download PyPI).
+
+    In ``max`` con la heat della fonte, mai in somma: un articolo su un feed
+    non ha engagement suo, ma se la libreria che presenta viaggia a migliaia
+    di download a settimana il radar deve scaldarsi lo stesso. I download
+    settimanali sono già una velocità (come per npm): niente divisione per età.
+    """
+    weekly = (item.engagement_json or {}).get("pypi_week")
+    if not isinstance(weekly, (int, float)) or weekly <= 0:
+        return 0.0
+    return _saturate(float(weekly), config.enrichment.pypi_week_cap)
 
 
 def _saturation(item: Item) -> float:

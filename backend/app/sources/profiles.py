@@ -33,10 +33,22 @@ class SourceProfile:
     engagement_weights: dict[str, float] | None = None
 
     def engagement(self, engagement_json: dict | None) -> float:
-        """Riduzione scalare dell'engagement grezzo, secondo il profilo."""
+        """Riduzione scalare dell'engagement grezzo, secondo il profilo.
+
+        Le chiavi ``pypi_*`` sono dell'enricher (app/enrich.py), non della
+        fonte: la somma cieca le salta, altrimenti migliaia di download
+        finirebbero sommati ai 3 punti di un feed, gonfiando heat e
+        saturazione. Lo scoring le legge come canale a parte.
+        """
         e = engagement_json or {}
         if self.engagement_weights is None:
-            return float(sum(v for v in e.values() if isinstance(v, (int, float))))
+            return float(
+                sum(
+                    v
+                    for k, v in e.items()
+                    if isinstance(v, (int, float)) and not k.startswith("pypi_")
+                )
+            )
         return float(
             sum(
                 weight * float(e.get(key) or 0)

@@ -307,3 +307,18 @@ throughput:
   # decine di transazioni al secondo quando gli insight arrivano dalla cache e
   # gli item scorrono veloci. 0 = scrivi a ogni item, come prima.
   progress_min_seconds: 1
+
+enrichment:
+  # Arricchimento post-raccolta: non una fonte, un secondo asse di trazione.
+  # Un item che cita un pacchetto PyPI (link a pypi.org/project/<nome> o
+  # `pip install <nome>` nel testo) riceve i download dell'ultima settimana da
+  # pypistats.org (API pubblica, gratuita, senza chiave). Il dato entra come
+  # canale separato: non si somma all'engagement della fonte, va in `max` con
+  # la sua heat — accende gli item di feed e arXiv, che engagement non ne hanno.
+  pypi_downloads: true
+  # Una richiesta per pacchetto, cache dentro il run. pypistats non pubblica un
+  # rate limit formale: il tetto è la nostra buona educazione.
+  max_packages_per_run: 40
+  # Download/settimana che valgono heat = 1.0 (i settimanali sono già una
+  # velocità, come per npm: niente divisione per l'età).
+  pypi_week_cap: 20000

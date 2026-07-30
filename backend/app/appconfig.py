@@ -143,6 +143,27 @@ class ThroughputConfig(BaseModel):
     progress_min_seconds: float = 1.0
 
 
+class EnrichmentConfig(BaseModel):
+    """Arricchimento degli item raccolti con segnali esterni gratuiti.
+
+    Non è una fonte: non porta item nuovi, aggiunge trazione misurata a quelli
+    che già ci sono. Il primo enricher è pypistats.org — un item che cita un
+    pacchetto PyPI (link a pypi.org o `pip install X` nel testo) riceve i
+    download dell'ultima settimana, un asse di engagement indipendente da
+    stelle e punti.
+    """
+
+    # Interruttore dell'enricher PyPI. API pubblica e gratuita, nessuna chiave.
+    pypi_downloads: bool = True
+    # Tetto ai pacchetti interrogati in un run (una richiesta per pacchetto,
+    # con cache dentro il run). pypistats non pubblica un rate limit formale:
+    # il tetto è la nostra buona educazione.
+    max_packages_per_run: int = 40
+    # Download/settimana che valgono heat = 1.0, come la velocity_cap di npm:
+    # i download settimanali sono già una velocità, non si divide per l'età.
+    pypi_week_cap: float = 20_000.0
+
+
 class LifecycleConfig(BaseModel):
     """Ciclo di vita delle idee: l'archivio tiene il radar fresco."""
 
@@ -192,6 +213,7 @@ class AppConfig(BaseModel):
     scheduling: SchedulingConfig = Field(default_factory=SchedulingConfig)
     lifecycle: LifecycleConfig = Field(default_factory=LifecycleConfig)
     throughput: ThroughputConfig = Field(default_factory=ThroughputConfig)
+    enrichment: EnrichmentConfig = Field(default_factory=EnrichmentConfig)
 
     def enabled_sources(self) -> list[SourceConfig]:
         return [s for s in self.sources if s.enabled]

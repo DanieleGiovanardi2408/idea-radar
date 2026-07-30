@@ -22,6 +22,7 @@ from app.clustering import (
 from app.config import Settings, get_settings
 from app.db import get_session, init_db, upsert_item
 from app.embeddings import OllamaEmbedder, centroid, embed_items
+from app.enrich import PyPIStatsEnricher
 from app.healing import heal_ideas
 from app.lifecycle import archive_stale_ideas
 from app.llm import IdeaInsight, OllamaClient, generate_insight, heuristic_insight
@@ -85,11 +86,15 @@ def _collect(
     config: AppConfig,
     settings: Settings,
     sources: list[Source] | None,
+    enricher: PyPIStatsEnricher | None = None,
 ) -> list[Item]:
     if sources is None:
         sources = [
             create_source(sc, config, settings) for sc in config.enabled_sources()
         ]
+    # Un enricher per run: cache e budget valgono per tutte le fonti, così un
+    # pacchetto citato da HN e da un feed costa una richiesta sola.
+    enricher = enricher or PyPIStatsEnricher(config.enrichment)
 
     collected: list[Item] = []
     stats: dict[str, dict] = {}
@@ -109,6 +114,15 @@ def _collect(
             # È così che arXiv ha potuto fallire a ogni run restando invisibile.
             _progress(session, run, sources_json=stats)
             continue
+
+        # L'arricchimento avviene PRIMA dell'upsert: così engagement_json entra
+        # nel DB già completo e la fotografia in ItemStat conserva anche la
+        # storia dei download (materia prima per un futuro delta).
+        try:
+            enriched_here = enricher.enrich(fetched)
+        except Exception as exc:  # un enricher rotto non deve costare il run
+            logger.warning("Enricher PyPI su %s fallito: %s", name, exc)
+            enriched_here = 0
 
         new_here = 0
         for raw_item in fetched:
@@ -146,6 +160,8 @@ def _collect(
         fetched_total += len(fetched)
         new_total += new_here
         stats[name] = {"fetched": len(fetched), "new": new_here}
+        if enriched_here:
+            stats[name]["pypi_enriched"] = enriched_here
         if report:
             stats[name].update(report)
         _progress(
@@ -156,6 +172,7 @@ def _collect(
             sources_json=stats,
         )
 
+    enricher.close()
     return collected
 
 
@@ -261,11 +278,12 @@ def run_pipeline(
     sources: list[Source] | None = None,
     ollama: OllamaClient | None = None,
     embedder: OllamaEmbedder | None = None,
+    enricher: PyPIStatsEnricher | None = None,
     on_progress: Callable[[str], None] | None = None,
 ) -> Run:
     """Esegue un run completo e restituisce l'entità :class:`Run` aggiornata.
 
-    ``sources``, ``ollama`` ed ``embedder`` sono iniettabili per i test.
+    ``sources``, ``ollama``, ``embedder`` ed ``enricher`` sono iniettabili per i test.
     ``on_progress`` (opzionale) riceve una stringa a ogni avanzamento: la CLI
     la usa per mostrare il progresso a terminale senza toccare il DB.
     """
@@ -280,7 +298,7 @@ def run_pipeline(
             settings, batch_size=config.throughput.embed_batch_size
         )
 
-        collected = _collect(session, run, config, settings, sources)
+        collected = _collect(session, run, config, settings, sources, enricher)
 
         # Gli embedding si chiedono tutti insieme, prima del ciclo: sono
         # indipendenti tra loro e da tutto il resto, quindi non c'è motivo di
