@@ -25,7 +25,13 @@ from app.embeddings import OllamaEmbedder, centroid, embed_items
 from app.enrich import PyPIStatsEnricher
 from app.healing import heal_ideas
 from app.lifecycle import archive_stale_ideas
-from app.llm import IdeaInsight, OllamaClient, generate_insight, heuristic_insight
+from app.llm import (
+    IdeaInsight,
+    OllamaClient,
+    OllamaError,
+    generate_insight,
+    heuristic_insight,
+)
 from app.models import (
     Idea,
     IdeaItem,
@@ -42,6 +48,7 @@ from app.queries import latest_scores
 from app.runlock import run_lock
 from app.scoring import ScoreResult, absolute_engagement, keyword_fit, score_item
 from app.sources import Source, create_source
+from app.sources.profiles import profile_for
 
 logger = logging.getLogger(__name__)
 
@@ -240,6 +247,75 @@ def _cached_insight(session: Session, idea: Idea) -> IdeaInsight | None:
     )
 
 
+def _idea_signals(idea: Idea) -> str:
+    """La riga "Segnali" dei prompt delle mosse: fonti e titoli degli item.
+
+    È quello che distingue "questa cosa sta salendo su HN e ha già un repo"
+    da un'idea qualsiasi: senza, il modello scrive mosse da oroscopo.
+    """
+    parts = []
+    for item in idea.items[:4]:
+        engagement = profile_for(item.source).engagement(item.engagement_json)
+        parts.append(
+            f"{item.source}: {item.title}"
+            + (f" (engagement {engagement:.0f})" if engagement else "")
+        )
+    return "; ".join(parts) or "(nessun segnale registrato)"
+
+
+def _moves_phase(
+    session: Session,
+    run: Run,
+    config: AppConfig,
+    ollama: OllamaClient,
+    on_progress: Callable[[str], None] | None,
+) -> None:
+    """Le "mosse" per le idee sopra soglia di QUESTO run: il cosa fartene.
+
+    Gira dopo lo scoring, perché "sopra soglia" si sa solo alla fine, e prima
+    dell'archiviazione. Come summary/why si genera una volta per idea (NULL =
+    ci riprova il run dopo); a differenza loro NON ha fallback euristico: una
+    mossa passe-partout è rumore travestito da consiglio. Budget di chiamate
+    per run: le idee oltre il tetto aspettano il giro successivo.
+    """
+    if not config.moves.enabled:
+        return
+    proposed = session.exec(
+        select(Score)
+        .where(Score.run_id == run.id)
+        .where(Score.composite >= config.scoring.threshold)
+        .order_by(Score.composite.desc())  # type: ignore[union-attr]
+    ).all()
+    budget = config.moves.max_llm_calls_per_run
+    for rank, score in enumerate(proposed):
+        if budget <= 0:
+            break
+        idea = session.get(Idea, score.idea_id)
+        if idea is None:
+            continue
+        wants_moves = idea.moves_json is None
+        wants_angle = rank < config.moves.angle_top_n and idea.angle_text is None
+        if not (wants_moves or wants_angle):
+            continue
+        if on_progress is not None:
+            on_progress(f"mosse per «{idea.label[:60]}»")
+        args = (idea.label, idea.summary or "", score.why_text or "", _idea_signals(idea))
+        try:
+            if wants_moves:
+                idea.moves_json = ollama.moves(*args)
+                budget -= 1
+            if wants_angle and budget > 0:
+                idea.angle_text = ollama.business_angle(*args)
+                budget -= 1
+        except OllamaError as exc:
+            # Ollama giù o risposta illeggibile: si lascia NULL e si smette di
+            # insistere per questo run — se è giù per uno, è giù per tutti.
+            logger.warning("Mosse non generate (%s): riproverà al prossimo run.", exc)
+            break
+        session.add(idea)
+        session.commit()
+
+
 def _embed_phase(
     session: Session,
     run: Run,
@@ -392,6 +468,11 @@ def run_pipeline(
             label_min_ideas=config.clustering.topic_label_min_ideas,
         )
         n_topics = _record_topic_stats(session, run)
+
+        # Le mosse arrivano DOPO lo scoring (sopra soglia si sa solo adesso)
+        # e prima dell'archiviazione: il "cosa fartene" delle idee di oggi.
+        avanzamento.force(session, run, phase="mosse per le idee sopra soglia")
+        _moves_phase(session, run, config, ollama, on_progress)
 
         # Ciclo di vita in coda al run: chi non porta segnali da troppo tempo
         # esce dalle viste vive (e rientra da solo se un item la riattiva).

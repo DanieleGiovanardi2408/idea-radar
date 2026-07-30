@@ -54,6 +54,48 @@ Segnali di engagement: {engagement}
 Testo: {text}
 """
 
+_MOVES_PROMPT = """Sei un operatore che sfrutta il vantaggio informativo: questa cosa sta salendo
+ADESSO e quasi nessuno se n'è ancora accorto. Chi legge è un piccolo team indipendente (1-3 persone).
+
+Rispondi ESCLUSIVAMENTE con un oggetto JSON valido: {{"moves": ["...", "...", "..."]}}
+
+Regole per "moves": 2-3 azioni CONCRETE ed ESEGUIBILI QUESTA SETTIMANA per trarre vantaggio
+dall'essere arrivati presto. Ogni mossa una frase, che inizi con un verbo all'imperativo.
+Tipi di mossa validi: costruire qualcosa di piccolo che manca attorno a questa cosa,
+occupare uno spazio (scrivere la guida di riferimento, il confronto, il benchmark che ancora
+non esiste), integrarla dove dà un vantaggio, posizionarsi (dominio, canale, community) prima
+che arrivi la folla.
+Vietate le mosse passe-partout ("segui gli sviluppi", "approfondisci", "valuta l'uso"):
+se la mossa vale per qualsiasi altra idea, è sbagliata. Aggancia ogni mossa a un dettaglio
+specifico di QUESTO contenuto.
+
+IDEA
+Titolo: {label}
+Cosa fa: {summary}
+Perché conta: {why}
+Segnali: {signals}
+"""
+
+_ANGLE_PROMPT = """Sei un analista di opportunità per un piccolo team indipendente (1-3 persone).
+Questa idea è tra le più calde del radar OGGI: il vantaggio è arrivare prima degli altri.
+
+Rispondi ESCLUSIVAMENTE con un oggetto JSON valido: {{"angle": "..."}}
+
+Regole per "angle": un mini-caso di business in 3-4 frasi, nell'ordine:
+(1) CHI è il cliente con il problema (specifico: non "le aziende" ma chi, di preciso);
+(2) COSA gli vendi o gli offri, costruibile da un team piccolo;
+(3) PERCHÉ arrivare presto conta qui (cosa si chiude quando arriva la folla);
+(4) il PRIMO passo verificabile in una settimana.
+Sii concreto e specifico di QUESTA idea: se il testo potrebbe valere per un'altra, è sbagliato.
+Scrivi in ITALIANO, termini tecnici in inglese dove serve.
+
+IDEA
+Titolo: {label}
+Cosa fa: {summary}
+Perché conta: {why}
+Segnali: {signals}
+"""
+
 _TOPIC_PROMPT = """Ecco i titoli di idee tech che appartengono allo stesso gruppo:
 
 {labels}
@@ -161,6 +203,34 @@ class OllamaClient:
             why_text=str(data.get("why_text") or "")[:1000],
             difficulty=_parse_difficulty(data.get("difficulty")),
         )
+
+    def moves(self, label: str, summary: str, why: str, signals: str) -> list[str]:
+        """2-3 mosse concrete per sfruttare il vantaggio di sapere presto.
+
+        Niente fallback euristico, di proposito: una mossa generica è peggio di
+        nessuna mossa (lezione n.1 in cima al modulo). Se Ollama non c'è,
+        l'idea resta senza e il run successivo ci riprova.
+        """
+        data = self._generate_json(
+            _MOVES_PROMPT.format(label=label, summary=summary, why=why, signals=signals)
+        )
+        raw = data.get("moves")
+        if not isinstance(raw, list):
+            raise OllamaError(f"'moves' non è una lista: {type(raw).__name__}")
+        moves = [str(m).strip()[:300] for m in raw if str(m).strip()][:3]
+        if not moves:
+            raise OllamaError("nessuna mossa generata")
+        return moves
+
+    def business_angle(self, label: str, summary: str, why: str, signals: str) -> str:
+        """Il mini-caso di business per un'idea in cima al radar."""
+        data = self._generate_json(
+            _ANGLE_PROMPT.format(label=label, summary=summary, why=why, signals=signals)
+        )
+        angle = str(data.get("angle") or "").strip()
+        if not angle:
+            raise OllamaError("angolo di business vuoto")
+        return angle[:1500]
 
     def topic_label(self, labels: list[str]) -> str:
         data = self._generate_json(

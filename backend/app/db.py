@@ -54,6 +54,10 @@ _ADDED_COLUMNS: dict[str, dict[str, str]] = {
         "dismissed_at": "TIMESTAMP",
         "seen_at": "TIMESTAMP",
         "note": "TEXT",
+        # Mosse e angolo di business: NULL = mai generati, il run dopo ci
+        # riprova (le idee già sopra soglia li ricevono al primo run utile).
+        "moves_json": "JSON",
+        "angle_text": "TEXT",
     },
     "scores": {
         # Profilo (macro-tema) su cui è stato misurato il fit. Gli score vecchi

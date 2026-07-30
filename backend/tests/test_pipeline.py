@@ -31,6 +31,12 @@ class FakeOllama:
     def topic_label(self, labels: list[str]) -> str:
         return "topic di prova"
 
+    def moves(self, label: str, summary: str, why: str, signals: str) -> list[str]:
+        return [f"sfrutta {label}"]
+
+    def business_angle(self, label: str, summary: str, why: str, signals: str) -> str:
+        return f"angolo per {label}"
+
 
 class FakeEmbedder:
     """Embedding deterministici: item con lo stesso prefisso finiscono vicini."""

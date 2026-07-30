@@ -7,6 +7,34 @@ prossima volta si aggiorna un punto e non nove.
 """
 
 
+from app.llm import IdeaInsight
+from app.models import Item
+
+
+class FakeOllama:
+    """OllamaClient finto con TUTTO il protocollo che la pipeline usa.
+
+    La lezione è del 30/07: la fase delle mosse è nata chiamando
+    ``ollama.moves()``, e i FakeOllama locali dei test — che conoscevano solo
+    ``insight`` e ``topic_label`` — sono esplosi con AttributeError. Un metodo
+    nuovo sulla pipeline si aggiunge QUI, una volta.
+    """
+
+    def insight(self, item: Item) -> IdeaInsight:
+        return IdeaInsight(
+            summary=f"riassunto di {item.title}", why_text="perché sì", difficulty=None
+        )
+
+    def topic_label(self, labels: list[str]) -> str:
+        return "topic di prova"
+
+    def moves(self, label: str, summary: str, why: str, signals: str) -> list[str]:
+        return [f"sfrutta {label}"]
+
+    def business_angle(self, label: str, summary: str, why: str, signals: str) -> str:
+        return f"angolo per {label}"
+
+
 class EmbedManyMixin:
     """Aggiunge ``embed_many`` a un doppio che sa già fare ``embed``.
 

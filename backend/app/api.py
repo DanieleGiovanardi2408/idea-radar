@@ -88,6 +88,10 @@ class IdeaOut(BaseModel):
     dismissed_at: datetime | None = None
     seen_at: datetime | None = None
     note: str | None = None
+    # Il "cosa fartene": mosse concrete per sfruttare il vantaggio, e (solo
+    # per le idee in cima) il mini-caso di business. None = non ancora generati.
+    moves: list[str] | None = None
+    angle: str | None = None
     items: list[ItemOut] = []
 
 
@@ -227,6 +231,8 @@ def _idea_out(idea: Idea, score, model=IdeaOut):
         dismissed_at=idea.dismissed_at,
         seen_at=idea.seen_at,
         note=idea.note,
+        moves=idea.moves_json,
+        angle=idea.angle_text,
         items=[
             ItemOut(
                 source=it.source,

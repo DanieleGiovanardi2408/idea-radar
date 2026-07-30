@@ -322,3 +322,16 @@ enrichment:
   # Download/settimana che valgono heat = 1.0 (i settimanali sono già una
   # velocità, come per npm: niente divisione per l'età).
   pypi_week_cap: 20000
+
+moves:
+  # Le "mosse": il cosa-fartene di un'idea, generato dal 7B quando supera la
+  # soglia. 2-3 azioni concrete per sfruttare il vantaggio di sapere la cosa
+  # presto; per le idee in cima anche un mini-caso di business (cliente,
+  # offerta, perché ora, primo passo). Una volta sola per idea, come summary.
+  # Niente fallback euristico: una mossa passe-partout è rumore travestito.
+  enabled: true
+  # Quante idee in cima (per composite del run) ricevono anche l'angolo.
+  angle_top_n: 5
+  # Tetto alle chiamate LLM per run (~7s l'una): chi resta fuori aspetta il
+  # run successivo. 12 = ~90s aggiunti a un run nel caso peggiore.
+  max_llm_calls_per_run: 12

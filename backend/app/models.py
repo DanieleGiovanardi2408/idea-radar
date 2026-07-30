@@ -99,6 +99,14 @@ class Idea(SQLModel, table=True):
     dismissed_at: datetime | None = None  # scartata a mano: fuori dalle viste
     seen_at: datetime | None = None  # ultima apertura del dettaglio
     note: str | None = None  # appunto personale
+    # --- Il "cosa fartene": generato dall'LLM quando l'idea supera la soglia.
+    # Stabile come summary (si genera una volta, non a ogni run); None = non
+    # ancora generato, quindi il run dopo ci riprova. Le mosse sono 2-3 azioni
+    # concrete per sfruttare il vantaggio di sapere la cosa presto; l'angolo di
+    # business (solo per le idee in cima) è un mini-caso: cliente, offerta,
+    # perché ora, primo passo.
+    moves_json: list[str] | None = Field(default=None, sa_column=Column(JSON))
+    angle_text: str | None = None
 
     items: list[Item] = Relationship(back_populates="ideas", link_model=IdeaItem)
     topic: Topic | None = Relationship(back_populates="ideas")

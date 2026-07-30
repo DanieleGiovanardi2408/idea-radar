@@ -10,10 +10,9 @@ from sqlmodel import Session, create_engine, select
 from app.appconfig import AppConfig, ClusteringConfig, ScoringConfig
 from app.config import Settings
 from app.db import init_db
-from app.llm import IdeaInsight
 from app.models import Idea, IdeaStatus, Item
 from app.pipeline import run_pipeline
-from fakes import EmbedManyMixin
+from fakes import EmbedManyMixin, FakeOllama
 
 
 class FakeSource:
@@ -22,14 +21,6 @@ class FakeSource:
 
     def fetch(self) -> list[Item]:
         return self._items
-
-
-class FakeOllama:
-    def insight(self, item: Item) -> IdeaInsight:
-        return IdeaInsight(summary=f"riassunto di {item.title}", why_text="w", difficulty=None)
-
-    def topic_label(self, labels: list[str]) -> str:
-        return "topic"
 
 
 class ConstEmbedder(EmbedManyMixin):

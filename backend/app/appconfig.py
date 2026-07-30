@@ -143,6 +143,23 @@ class ThroughputConfig(BaseModel):
     progress_min_seconds: float = 1.0
 
 
+class MovesConfig(BaseModel):
+    """Le "mosse": cosa fartene di un'idea, generato quando supera la soglia.
+
+    Il radar dice cosa sta salendo; le mosse dicono come sfruttare il
+    vantaggio di saperlo presto. Solo per le idee sopra soglia (le altre non
+    valgono il 7B), e una volta sola per idea — come summary/why.
+    """
+
+    enabled: bool = True
+    # Quante idee in cima (per composite del run) ricevono anche l'angolo di
+    # business, oltre alle mosse. È la parte più costosa e più letta: poche.
+    angle_top_n: int = 5
+    # Tetto alle chiamate LLM della fase per run (~7s l'una): le idee oltre il
+    # budget restano a NULL e vengono riprese al run successivo.
+    max_llm_calls_per_run: int = 12
+
+
 class EnrichmentConfig(BaseModel):
     """Arricchimento degli item raccolti con segnali esterni gratuiti.
 
@@ -214,6 +231,7 @@ class AppConfig(BaseModel):
     lifecycle: LifecycleConfig = Field(default_factory=LifecycleConfig)
     throughput: ThroughputConfig = Field(default_factory=ThroughputConfig)
     enrichment: EnrichmentConfig = Field(default_factory=EnrichmentConfig)
+    moves: MovesConfig = Field(default_factory=MovesConfig)
 
     def enabled_sources(self) -> list[SourceConfig]:
         return [s for s in self.sources if s.enabled]
