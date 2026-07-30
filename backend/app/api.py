@@ -5,13 +5,15 @@ import threading
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from datetime import datetime
+from typing import Literal
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Response
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.appconfig import get_config
 from app.db import get_session, init_db
+from app.export import ideas_to_csv
 from app.models import Idea, IdeaStatus, Run, utcnow
 from app.pipeline import execute_run
 from app.queries import (
@@ -247,7 +249,7 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/ideas", response_model=list[IdeaOut])
+@app.get("/ideas", response_model=None)
 def list_ideas(
     session: Session = Depends(get_db),
     status: IdeaStatus | None = None,
@@ -257,13 +259,15 @@ def list_ideas(
     include_dismissed: bool = False,
     profile: str | None = None,
     ungrouped: bool = False,
-) -> list[IdeaOut]:
+    format: Literal["json", "csv"] = "json",
+) -> list[IdeaOut] | Response:
     """Idee ordinate (pinnate prima, poi composite): filtri e paginazione in SQL.
 
     Default: solo il vivo. Le archiviate si chiedono con ``?status=archived``,
     le scartate a mano con ``?include_dismissed=true``, e ``?profile=<nome>``
     mostra il radar dal punto di vista di un tema solo.
     ``?ungrouped=true`` restituisce le idee che non stanno in nessun topic.
+    ``?format=csv`` restituisce le stesse righe, stessi filtri, come CSV.
     """
     rows = top_ideas(
         session,
@@ -275,6 +279,12 @@ def list_ideas(
         profile=profile,
         ungrouped=ungrouped,
     )
+    if format == "csv":
+        return Response(
+            content=ideas_to_csv(rows),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="ideas.csv"'},
+        )
     return [_idea_out(idea, score) for idea, score in rows]
 
 

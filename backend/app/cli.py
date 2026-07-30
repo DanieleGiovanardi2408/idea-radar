@@ -1,6 +1,7 @@
 """CLI Typer di Idea Radar."""
 
 from datetime import datetime
+from pathlib import Path
 
 import typer
 from sqlmodel import select
@@ -10,6 +11,7 @@ from app.clustering import dissolve_single_idea_topics, sweep_topic_thresholds
 from app.config import get_settings
 from app.db import DATA_DIR, get_session, init_db
 from app.digest import last_digest_at, render_digest, write_digest
+from app.export import ideas_to_csv
 from app.healing import (
     ideas_to_reinsight,
     items_without_embedding,
@@ -167,6 +169,53 @@ def digest(
         typer.echo(f"  in cima: {headline}")
     else:
         typer.echo("  nessuna idea nuova sopra soglia in questa finestra.")
+
+
+@app.command()
+def export(
+    output: str = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="File di destinazione. Senza, il CSV va su stdout (comodo per pipe).",
+    ),
+    limit: int = typer.Option(500, help="Numero massimo di idee da esportare."),
+    proposed: bool = typer.Option(
+        False, "--proposed", help="Esporta solo le idee sopra soglia (proposed)."
+    ),
+    include_dismissed: bool = typer.Option(
+        False, "--include-dismissed", help="Includi anche le idee scartate a mano."
+    ),
+    profile: str = typer.Option(
+        None, "--profile", help="Esporta dal punto di vista di un profilo keyword."
+    ),
+) -> None:
+    """Esporta le idee in CSV: stesse righe e stesso ordine di `GET /ideas`.
+
+    Senza `--output` scrive su stdout, quindi si compone:
+    `idea-radar export --proposed | head` o `> idee.csv`.
+    """
+    init_db()
+    status = IdeaStatus.PROPOSED if proposed else None
+    with get_session() as session:
+        rows = top_ideas(
+            session,
+            limit=limit,
+            status=status,
+            include_dismissed=include_dismissed,
+            profile=profile,
+        )
+        content = ideas_to_csv(rows)
+
+    if output is None:
+        # `echo` aggiungerebbe una newline al file già terminato: print senza end.
+        typer.echo(content, nl=False)
+        return
+
+    path = Path(output)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    typer.echo(f"{len(rows)} idee esportate in {path}")
 
 
 @app.command()
