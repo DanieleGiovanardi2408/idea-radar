@@ -6,7 +6,7 @@ stessi 31 repo (freeCodeCamp 452k stelle, tensorflow 196k), 22 creati prima del
 2024 — l'opposto del "2k stelle in tre mesi" che il radar dice di cercare.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -142,13 +142,22 @@ def test_profiles_become_separate_query_groups() -> None:
 
 def test_the_quota_is_split_across_bands_not_won_by_the_oldest() -> None:
     """Le stelle si accumulano col tempo: ordinando tutto insieme vincerebbe
-    sempre la fascia più vecchia, cioè il pregiudizio da cui si scappa."""
+    sempre la fascia più vecchia, cioè il pregiudizio da cui si scappa.
+
+    Le fasce nel mock vanno riconosciute dal BORDO in giorni, non da date
+    scritte a mano: `fetch()` usa l'orologio vero, e le date fisse hanno già
+    fatto scadere questo test una volta (scritte col 27 luglio come "oggi",
+    fallivano dal 28)."""
+
+    def _band_marker(days: int) -> str:
+        # Lo stesso calcolo di search_query: il bordo giovane della fascia.
+        return (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
 
     def handler(request: httpx.Request) -> httpx.Response:
         query = request.url.params["q"]
-        if "2026-04-28..2026-07-27" in query:  # fascia giovane: pochi stellati
+        if f"..{_band_marker(0)}" in query:  # fascia giovane: pochi stellati
             return httpx.Response(200, json={"items": [_repo(1, 300, "nuovo/uno")]})
-        if "2025-10-30..2026-04-28" in query:  # fascia media
+        if f"..{_band_marker(90)}" in query:  # fascia media
             return httpx.Response(200, json={"items": [_repo(2, 3_000, "medio/due")]})
         return httpx.Response(  # fascia vecchia: stelle a valanga
             200,
