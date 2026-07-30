@@ -34,6 +34,11 @@ export type IdeaOut = {
   dismissed_at: string | null
   seen_at: string | null
   note: string | null
+  /* Il "cosa fartene", generato quando l'idea supera la soglia: mosse concrete
+     per sfruttare il vantaggio e (solo per le idee in cima) il mini-caso di
+     business. null = non ancora generati (arrivano al prossimo run). */
+  moves: string[] | null
+  angle: string | null
 }
 
 /* Body di PATCH /ideas/{id}: i campi assenti non vengono toccati;

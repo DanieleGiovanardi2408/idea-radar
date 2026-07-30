@@ -56,6 +56,8 @@ export function fakeIdea(overrides: Partial<IdeaDetailOut> = {}): IdeaDetailOut 
     dismissed_at: null,
     seen_at: null,
     note: null,
+    moves: null,
+    angle: null,
     items: [],
     history: [],
     ...overrides,

@@ -133,6 +133,29 @@ describe('IdeaDetail', () => {
       expect(seen).toHaveLength(1)
     })
   })
+
+  it('mostra le mosse e l\'angolo di business quando ci sono', async () => {
+    open(
+      fakeIdea({
+        moves: ['Costruisci il wrapper CLI che manca', 'Scrivi il benchmark di riferimento'],
+        angle: 'Il cliente sono i team di piattaforma senza GPU.',
+      }),
+    )
+
+    expect(await screen.findByText(/le mosse/i)).toBeInTheDocument()
+    expect(screen.getByText('Costruisci il wrapper CLI che manca')).toBeInTheDocument()
+    expect(screen.getByText(/angolo di business/i)).toBeInTheDocument()
+    expect(
+      screen.getByText('Il cliente sono i team di piattaforma senza GPU.'),
+    ).toBeInTheDocument()
+  })
+
+  it('niente sezione mosse per un\'idea che non le ha ancora', async () => {
+    open(fakeIdea({ moves: null, angle: null }))
+
+    await screen.findByRole('button', { name: /pinna in cima/i })
+    expect(screen.queryByText(/le mosse/i)).not.toBeInTheDocument()
+  })
 })
 
 describe('il mock di fetch', () => {

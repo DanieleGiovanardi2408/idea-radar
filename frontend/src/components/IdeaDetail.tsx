@@ -264,6 +264,35 @@ export function IdeaDetail({
               </Section>
             )}
 
+            {/* Il "cosa fartene": presente solo se il run l'ha già generato
+                (idee sopra soglia). Niente placeholder per le altre: una
+                sezione vuota su ogni idea sarebbe rumore. */}
+            {((idea.moves?.length ?? 0) > 0 || idea.angle) && (
+              <Section label="Le mosse" delayMs={90}>
+                {(idea.moves?.length ?? 0) > 0 && (
+                  <ul className="space-y-2">
+                    {idea.moves!.map((move, i) => (
+                      <li
+                        key={i}
+                        className="flex gap-2.5 text-sm leading-relaxed text-slate-300"
+                      >
+                        <span aria-hidden className="mt-px shrink-0 text-phosphor">
+                          ▸
+                        </span>
+                        <span>{move}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {idea.angle && (
+                  <div className="mt-3 rounded-lg border border-white/[0.06] bg-white/[0.03] p-3">
+                    <p className="hud mb-1.5 text-slate-500">Angolo di business</p>
+                    <p className="text-sm leading-relaxed text-slate-400">{idea.angle}</p>
+                  </div>
+                )}
+              </Section>
+            )}
+
             <Section label="KPI" delayMs={120}>
               <div className="grid gap-2.5">
                 {METRICS.map((m, i) => (
