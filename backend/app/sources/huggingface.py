@@ -130,7 +130,20 @@ class HuggingFaceSource:
                     if not isinstance(entries, list):
                         continue
                     for entry in entries:
-                        item = self._to_item(entry, kind)
+                        if not isinstance(entry, dict):
+                            continue
+                        try:
+                            item = self._to_item(entry, kind)
+                        except (TypeError, ValueError, AttributeError) as exc:
+                            # Come per le keyword: una entry malformata non deve
+                            # far perdere gli altri segnali già raccolti.
+                            logger.warning(
+                                "Hugging Face, %s entry %r scartata: %s",
+                                kind,
+                                entry.get("id"),
+                                exc,
+                            )
+                            continue
                         if item is not None and item.external_id not in seen:
                             in_kind.setdefault(item.external_id, item)
                 best = sorted(
@@ -155,12 +168,13 @@ class HuggingFaceSource:
         # l'età, quindi senza data di nascita si lascia None e lo scoring
         # ripiega sull'euristica invece di inventare una recency.
         created_at = _parse_iso(entry.get("createdAt"))
+        card_data = entry.get("cardData")
         description = " ".join(
             part
             for part in (
-                entry.get("pipeline_tag"),
-                " ".join(str(t) for t in (entry.get("tags") or [])[:12]),
-                (entry.get("cardData") or {}).get("license"),
+                _as_text(entry.get("pipeline_tag")),
+                _as_text(entry.get("tags"), limit=12),
+                _as_text(card_data.get("license") if isinstance(card_data, dict) else None),
             )
             if part
         )
@@ -179,6 +193,28 @@ class HuggingFaceSource:
             created_at=created_at,
             raw_json=entry,
         )
+
+
+def _as_text(value: object, limit: int | None = None) -> str:
+    """Appiattisce a testo un campo del card data, che non ha schema garantito.
+
+    L'hub non tipizza il `cardData`: `license` arriva come stringa sui modelli a
+    licenza singola e come lista su quelli multi-licenza (`["apache-2.0",
+    "other"]`), e lo stesso vale per gli altri campi liberi. Concatenare senza
+    normalizzare faceva morire l'intero collector con
+    ``sequence item 1: expected str instance, list found`` — un modello con
+    licenza doppia bastava a perdere tutti i segnali del run.
+    """
+    if value is None or isinstance(value, bool):
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (list, tuple, set)):
+        parts = [_as_text(v) for v in list(value)[:limit]]
+        return " ".join(p for p in parts if p)
+    if isinstance(value, dict):
+        return _as_text(list(value.values()), limit=limit)
+    return str(value).strip()
 
 
 def _parse_iso(value: str | None) -> datetime | None:

@@ -158,3 +158,55 @@ def test_a_payload_that_is_not_a_list_is_ignored() -> None:
 def test_registered_in_the_source_registry() -> None:
     src = create_source(_cfg(), _app_config(), Settings())
     assert isinstance(src, HuggingFaceSource)
+
+
+def test_a_multi_license_model_is_collected() -> None:
+    """`cardData.license` è una lista sui modelli multi-licenza.
+
+    Il caso reale che rompeva il run #66: il join sul description moriva con
+    `sequence item 1: expected str instance, list found` e la fonte perdeva
+    tutti i segnali, non solo quello malformato.
+    """
+    entry = _model("multi/licenza", 9)
+    entry["cardData"] = {"license": ["apache-2.0", "other"]}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[entry])
+
+    items = _source(handler).fetch()
+
+    assert [i.title for i in items] == ["multi/licenza"]
+    assert "apache-2.0" in items[0].text
+    assert "other" in items[0].text
+
+
+def test_a_single_license_string_still_lands_in_the_text() -> None:
+    entry = _model("singola/licenza", 3)
+    entry["cardData"] = {"license": "mit"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[entry])
+
+    items = _source(handler).fetch()
+
+    assert items[0].text is not None
+    assert "mit" in items[0].text
+    assert "text-generation" in items[0].text
+
+
+def test_card_data_of_the_wrong_shape_is_ignored() -> None:
+    """`cardData` senza schema garantito: se non è un dict si tira avanti."""
+    entry = _model("card/strana", 4)
+    entry["cardData"] = ["apache-2.0"]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[entry])
+
+    assert [i.title for i in _source(handler).fetch()] == ["card/strana"]
+
+
+def test_one_malformed_entry_does_not_drop_the_others() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[{"id": ["non", "una", "stringa"]}, _model("ok/due", 6)])
+
+    assert "ok/due" in [i.title for i in _source(handler).fetch()]
