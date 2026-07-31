@@ -315,8 +315,8 @@ def test_rescoring_twice_updates_instead_of_duplicating(session: Session) -> Non
     cosa succedeva a ``topic_stats``. Rifotografare lo stesso run è legittimo:
     la fotografia si sovrascrive.
     """
-    from app.pipeline import _record_topic_stats, _rescore_ideas
     from app.models import TopicStat
+    from app.pipeline import _record_topic_stats, _rescore_ideas
 
     _item(session, "1", "un doppione", [1.0, 0.0])
     run = _done_run(session)

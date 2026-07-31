@@ -52,33 +52,32 @@ def latest_score_for(session: Session, idea_id: int) -> Score | None:
     ).first()
 
 
-def top_ideas(
-    session: Session,
-    limit: int = 10,
+def _escape_like(text: str) -> str:
+    r"""Il testo dell'utente come LITERALE dentro un LIKE: % e _ non sono jolly."""
+    return text.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+
+
+def _ideas_stmt(
+    stmt,
+    *,
     status: IdeaStatus | None = None,
     topic_id: int | None = None,
-    offset: int = 0,
     include_dismissed: bool = False,
     profile: str | None = None,
     ungrouped: bool = False,
-) -> list[tuple[Idea, Score | None]]:
-    """Idee con il loro ultimo score: pinnate prima, poi composite decrescente.
+    q: str | None = None,
+):
+    """I filtri di ``/ideas``, applicati a una select qualunque (righe o COUNT).
 
-    Senza filtro esplicito le ARCHIVED restano fuori: il Radar mostra il
-    vivo; le archiviate si chiedono apposta con ``status=ARCHIVED``. Le idee
-    scartate a mano (``dismissed_at``) restano fuori da OGNI vista finché non
-    si chiede ``include_dismissed`` — un dismiss è una decisione dell'utente,
-    non della pipeline.
+    Estrarre i filtri in un punto solo è ciò che tiene onesto il conteggio
+    totale: se lista e COUNT costruissero i WHERE ciascuno per conto proprio,
+    prima o poi divergerebbero in silenzio.
     """
     subq = _latest_score_run_subq()
-    stmt = (
-        select(Idea, Score)
-        .join(subq, subq.c.idea_id == Idea.id, isouter=True)
-        .join(
-            Score,
-            (Score.idea_id == subq.c.idea_id) & (Score.run_id == subq.c.run_id),
-            isouter=True,
-        )
+    stmt = stmt.join(subq, subq.c.idea_id == Idea.id, isouter=True).join(
+        Score,
+        (Score.idea_id == subq.c.idea_id) & (Score.run_id == subq.c.run_id),
+        isouter=True,
     )
     if status is None:
         stmt = stmt.where(Idea.status != IdeaStatus.ARCHIVED)
@@ -98,6 +97,47 @@ def top_ideas(
         stmt = stmt.where(Score.profile == profile)
     if not include_dismissed:
         stmt = stmt.where(Idea.dismissed_at.is_(None))  # type: ignore[union-attr]
+    if q:
+        # Ricerca in SQL, non in Python: il frontend cercava solo nella pagina
+        # caricata (100 su migliaia) e chiamava il risultato "la ricerca".
+        # Si cerca dove guarda l'utente: etichetta, sommario e nome del tema.
+        like = f"%{_escape_like(q.strip())}%"
+        stmt = stmt.join(Topic, Topic.id == Idea.topic_id, isouter=True).where(
+            Idea.label.ilike(like, escape="\\")  # type: ignore[attr-defined]
+            | Idea.summary.ilike(like, escape="\\")  # type: ignore[attr-defined]
+            | Topic.label.ilike(like, escape="\\")  # type: ignore[attr-defined]
+        )
+    return stmt
+
+
+def top_ideas(
+    session: Session,
+    limit: int = 10,
+    status: IdeaStatus | None = None,
+    topic_id: int | None = None,
+    offset: int = 0,
+    include_dismissed: bool = False,
+    profile: str | None = None,
+    ungrouped: bool = False,
+    q: str | None = None,
+) -> list[tuple[Idea, Score | None]]:
+    """Idee con il loro ultimo score: pinnate prima, poi composite decrescente.
+
+    Senza filtro esplicito le ARCHIVED restano fuori: il Radar mostra il
+    vivo; le archiviate si chiedono apposta con ``status=ARCHIVED``. Le idee
+    scartate a mano (``dismissed_at``) restano fuori da OGNI vista finché non
+    si chiede ``include_dismissed`` — un dismiss è una decisione dell'utente,
+    non della pipeline. ``q`` filtra su etichetta, sommario e nome del tema.
+    """
+    stmt = _ideas_stmt(
+        select(Idea, Score),
+        status=status,
+        topic_id=topic_id,
+        include_dismissed=include_dismissed,
+        profile=profile,
+        ungrouped=ungrouped,
+        q=q,
+    )
     stmt = (
         stmt.order_by(
             Idea.pinned.desc(),  # type: ignore[union-attr]
@@ -108,6 +148,33 @@ def top_ideas(
         .limit(limit)
     )
     return [(idea, score) for idea, score in session.exec(stmt).all()]
+
+
+def count_ideas(
+    session: Session,
+    status: IdeaStatus | None = None,
+    topic_id: int | None = None,
+    include_dismissed: bool = False,
+    profile: str | None = None,
+    ungrouped: bool = False,
+    q: str | None = None,
+) -> int:
+    """Quante idee passano gli STESSI filtri di ``top_ideas``, senza paginazione.
+
+    Serve al frontend per dire "N di T" invece di spacciare la pagina caricata
+    per il totale. I join sono al più 1:1 (ultimo score, topic), quindi il
+    COUNT su id distinti non gonfia.
+    """
+    stmt = _ideas_stmt(
+        select(func.count(func.distinct(Idea.id))),
+        status=status,
+        topic_id=topic_id,
+        include_dismissed=include_dismissed,
+        profile=profile,
+        ungrouped=ungrouped,
+        q=q,
+    )
+    return session.exec(stmt).one()
 
 
 def idea_history(session: Session, idea_id: int) -> list[Score]:

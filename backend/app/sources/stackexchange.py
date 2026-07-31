@@ -20,7 +20,7 @@ Due scelte deliberate:
 
 import logging
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
@@ -89,7 +89,7 @@ class StackExchangeSource:
         return [k.strip().replace(" ", "-") for k in derived if k.strip()]
 
     def query_params(self, tag: str, per_query: int, today: datetime | None = None) -> dict:
-        today = today or datetime.now(timezone.utc)
+        today = today or datetime.now(UTC)
         since = int((today - timedelta(days=self.cfg.max_age_days)).timestamp())
         return {
             "site": self.cfg.site,
@@ -148,7 +148,7 @@ class StackExchangeSource:
             return None
         created = question.get("creation_date")
         created_at = (
-            datetime.fromtimestamp(created, tz=timezone.utc).replace(tzinfo=None)
+            datetime.fromtimestamp(created, tz=UTC).replace(tzinfo=None)
             if created
             else None
         )

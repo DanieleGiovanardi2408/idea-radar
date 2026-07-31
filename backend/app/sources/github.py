@@ -18,7 +18,7 @@ farsi schiacciare dal termine più popolare.
 import logging
 import time
 from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
@@ -120,7 +120,7 @@ class GitHubSource:
         edges = sorted({d for d in self.cfg.created_windows if d > 0})
         if not edges:
             return [(0, 540)]
-        return list(zip([0, *edges[:-1]], edges))
+        return list(zip([0, *edges[:-1]], edges, strict=True))
 
     def search_query(
         self,
@@ -138,7 +138,7 @@ class GitHubSource:
         Il vincolo sulla nascita è quello che fa la differenza — senza, "ordinato
         per stelle" significa "i più famosi del mondo", la domanda sbagliata.
         """
-        today = today or datetime.now(timezone.utc)
+        today = today or datetime.now(UTC)
         newer, older = band
         start = (today - timedelta(days=older)).date().isoformat()
         end = (today - timedelta(days=newer)).date().isoformat()

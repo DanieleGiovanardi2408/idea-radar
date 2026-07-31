@@ -9,6 +9,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from fakes import EmbedManyMixin, FakeOllama
 from sqlmodel import Session, create_engine, select
 
 from app.appconfig import AppConfig, ClusteringConfig, ScoringConfig
@@ -16,7 +17,6 @@ from app.config import Settings
 from app.db import init_db
 from app.models import Item, ItemStat
 from app.pipeline import run_pipeline
-from fakes import EmbedManyMixin, FakeOllama
 
 
 class FakeSource:

@@ -1,6 +1,6 @@
 """Collector npm: pacchetti nuovi, non react e lodash."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
@@ -26,7 +26,7 @@ def _cfg(**overrides) -> SourceConfig:
 
 
 def _package(name: str, popularity: float, days_ago: int = 5) -> dict:
-    published = datetime.now(timezone.utc) - timedelta(days=days_ago)
+    published = datetime.now(UTC) - timedelta(days=days_ago)
     return {
         "package": {
             "name": name,

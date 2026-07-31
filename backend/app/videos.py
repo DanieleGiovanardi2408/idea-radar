@@ -19,6 +19,7 @@ configurato" e la UI lo dice, come fa Product Hunt col suo token.
 import logging
 import time
 from dataclasses import dataclass, field
+from datetime import UTC
 
 import httpx
 
@@ -95,9 +96,9 @@ def search_params(query: str, limit: int, live_only: bool) -> dict:
 
 
 def _one_week_ago() -> str:
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
-    return (datetime.now(timezone.utc) - timedelta(days=7)).strftime(
+    return (datetime.now(UTC) - timedelta(days=7)).strftime(
         "%Y-%m-%dT%H:%M:%SZ"
     )
 

@@ -14,7 +14,6 @@ from app.llm import OllamaClient, OllamaError
 from app.models import Idea, IdeaStatus, Item, Run, RunStatus, Score
 from app.pipeline import _moves_phase
 
-
 # ---- Parsing delle risposte del modello -------------------------------------
 
 

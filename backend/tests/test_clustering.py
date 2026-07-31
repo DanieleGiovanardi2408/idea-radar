@@ -149,7 +149,7 @@ def test_existing_item_reuses_its_idea(session: Session) -> None:
 
 
 def test_ideas_group_into_topics(session: Session) -> None:
-    for i, (external_id, title, emb) in enumerate(
+    for _i, (external_id, title, emb) in enumerate(
         [
             ("1", "agente AI per il codice", [1.0, 0.0]),
             ("2", "copilota per sviluppatori", [0.95, 0.3]),

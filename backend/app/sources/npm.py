@@ -18,7 +18,7 @@ heat resta quindi sull'euristica.
 
 import logging
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
@@ -102,7 +102,7 @@ class NpmSource:
         client = self._get_client()
         keywords = self.app_config.search_keywords(self.cfg.max_keywords) or ["cli"]
         per_query = max(5, self.cfg.limit // max(len(keywords), 1) * 2)
-        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+        cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(
             days=self.cfg.max_age_days
         )
         seen: dict[str, Item] = {}
@@ -168,7 +168,6 @@ class NpmSource:
         name = package.get("name")
         if not name:
             return None
-        score = (entry.get("score") or {}).get("detail") or {}
         links = package.get("links") or {}
         keywords = ", ".join(str(k) for k in (package.get("keywords") or [])[:8])
         description = clean_html_text(package.get("description") or "")
@@ -197,7 +196,7 @@ def _parse_iso(value: str | None) -> datetime | None:
     try:
         return (
             datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-            .astimezone(timezone.utc)
+            .astimezone(UTC)
             .replace(tzinfo=None)
         )
     except ValueError:

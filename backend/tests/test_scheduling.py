@@ -118,6 +118,32 @@ def test_preflight_unreachable_ollama() -> None:
     assert "non raggiungibile" in why
 
 
+def test_preflight_checks_dedicated_insight_model() -> None:
+    """Se OLLAMA_INSIGHT_MODEL è impostato, anche quel modello deve esserci:
+    un run non presidiato senza non deve partire e degradare in silenzio."""
+    settings = Settings(
+        ollama_model="qwen2.5:7b",
+        ollama_insight_model="qwen2.5:3b",
+        embedding_model="nomic-embed-text",
+    )
+    client = _tags_client(
+        {"models": [{"name": "qwen2.5:7b"}, {"name": "nomic-embed-text:latest"}]}
+    )
+    ready, why = ollama_preflight(settings, client=client)
+    assert ready is False
+    assert "qwen2.5:3b" in why
+    # E non deve chiedere due volte lo stesso modello quando coincidono.
+    same = Settings(
+        ollama_model="qwen2.5:7b",
+        ollama_insight_model="qwen2.5:7b",
+        embedding_model="nomic-embed-text",
+    )
+    client = _tags_client({"models": [{"name": "nomic-embed-text:latest"}]})
+    ready, why = ollama_preflight(same, client=client)
+    assert ready is False
+    assert why.count("qwen2.5:7b") == 1
+
+
 # ---- wiring CLI: run --scheduled --------------------------------------------
 
 

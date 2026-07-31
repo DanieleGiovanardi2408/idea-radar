@@ -14,7 +14,7 @@ viene saltato e gli altri proseguono.
 import hashlib
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from xml.etree import ElementTree
 
@@ -66,8 +66,8 @@ def _retry_after_seconds(resp: httpx.Response) -> float:
     try:  # forma "data HTTP"
         when = parsedate_to_datetime(value)
         if when.tzinfo is None:
-            when = when.replace(tzinfo=timezone.utc)
-        return max(0.0, (when - datetime.now(timezone.utc)).total_seconds())
+            when = when.replace(tzinfo=UTC)
+        return max(0.0, (when - datetime.now(UTC)).total_seconds())
     except (TypeError, ValueError):
         return DEFAULT_RETRY_WAIT
 
@@ -76,12 +76,12 @@ def _parse_date(value: str | None) -> datetime | None:
     if not value:
         return None
     try:  # RFC 822 (RSS 2.0), es. "Tue, 15 Jul 2026 10:00:00 GMT"
-        return parsedate_to_datetime(value).astimezone(timezone.utc).replace(tzinfo=None)
+        return parsedate_to_datetime(value).astimezone(UTC).replace(tzinfo=None)
     except (TypeError, ValueError):
         pass
     try:  # ISO 8601 (Atom)
         return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(
-            timezone.utc
+            UTC
         ).replace(tzinfo=None)
     except ValueError:
         return None

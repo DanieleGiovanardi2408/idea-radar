@@ -20,10 +20,10 @@ from app.healing import (
 from app.models import Idea, IdeaStatus, Topic, utcnow
 from app.pipeline import (
     execute_heal,
-    execute_rescore,
     execute_preview_rebuild,
     execute_rebuild_ideas,
     execute_recluster,
+    execute_rescore,
     execute_run,
 )
 from app.queries import monitor_stats, top_ideas, topic_trends, topics_overview
@@ -76,7 +76,7 @@ def _scheduled_run() -> None:
         return
     except Exception as exc:  # il traceback completo arriva nel log via logging
         typer.echo(f"{_stamp()} run fallito: {exc}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
     typer.echo(
         f"{_stamp()} run #{summary['run_id']} completato — "
         f"{summary['n_items']} items, {summary['n_ideas_proposed']} proposed, "
@@ -109,7 +109,7 @@ def run(
             "Un run è già in corso (altro terminale, API o scheduler). "
             "Riprova tra poco."
         )
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
     typer.echo("")  # chiude la riga di avanzamento
     typer.echo(
         f"Run #{summary['run_id']} completato — "
@@ -148,7 +148,7 @@ def digest(
             cutoff = datetime.fromisoformat(since)
         except ValueError:
             typer.echo(f"Data non valida: {since!r}. Usa il formato ISO, es. 2026-07-20.")
-            raise typer.Exit(2)
+            raise typer.Exit(2) from None
     else:
         cutoff = last_digest_at(DATA_DIR)
 
@@ -232,7 +232,7 @@ def rescore() -> None:
         summary = execute_rescore(on_progress=_show)
     except RunLockBusy:
         typer.echo("Un run è in corso: riprova a run finito.")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
     typer.echo("")
     if not summary["n_scored"]:
         typer.echo("Nessun run completato in archivio: serve prima un run.")
@@ -284,7 +284,7 @@ def heal(
             "Un run è in corso e la riparazione toccherebbe le stesse idee. "
             "Riprova a run finito."
         )
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
     typer.echo("")  # chiude la riga di avanzamento
 
     if not summary["n_merged"] and not summary["n_embedded"]:
@@ -434,7 +434,7 @@ def rebuild_ideas_command(
             "Un run è in corso e la ricostruzione toccherebbe gli stessi dati. "
             "Riprova a run finito."
         )
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
     typer.echo("")  # chiude la riga di avanzamento
     typer.echo(
         f"Fatto — {summary['n_ideas_before']} idee → {summary['n_ideas']} "
@@ -550,7 +550,7 @@ def recluster(
             "Un run è in corso e il recluster toccherebbe gli stessi topic. "
             "Riprova a run finito."
         )
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
     typer.echo(f"Fatto — {summary['n_ideas']} idee raggruppate in {summary['n_topics']} topic.")
 
 
@@ -644,7 +644,7 @@ def schedule_install() -> None:
         path = schedule_launchd.install()
     except RuntimeError as exc:
         typer.echo(f"Errore: {exc}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
     config = get_config()
     typer.echo(f"LaunchAgent installato e caricato: {path}")
     typer.echo(
@@ -664,7 +664,7 @@ def schedule_uninstall() -> None:
         removed = schedule_launchd.uninstall()
     except RuntimeError as exc:
         typer.echo(f"Errore: {exc}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
     typer.echo("LaunchAgent rimosso." if removed else "Nessun LaunchAgent da rimuovere.")
 
 

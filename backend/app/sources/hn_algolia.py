@@ -18,7 +18,7 @@ Due scelte deliberate:
 
 import logging
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
@@ -72,7 +72,7 @@ class HnAlgoliaSource:
             # e .timestamp() su un naive assumerebbe il fuso LOCALE (sbagliato).
             since = int(
                 (
-                    datetime.now(timezone.utc)
+                    datetime.now(UTC)
                     - timedelta(hours=self.cfg.lookback_hours)
                 ).timestamp()
             )
@@ -119,7 +119,7 @@ class HnAlgoliaSource:
             return None
         created = hit.get("created_at_i")
         created_at = (
-            datetime.fromtimestamp(created, tz=timezone.utc).replace(tzinfo=None)
+            datetime.fromtimestamp(created, tz=UTC).replace(tzinfo=None)
             if created
             else None
         )

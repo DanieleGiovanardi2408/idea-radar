@@ -10,7 +10,7 @@ uccidere il run, quindi una config con producthunt abilitato ma senza token
 degrada in modo visibile, non silenzioso.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 
@@ -124,7 +124,7 @@ class ProductHuntSource:
             # ISO 8601 -> naive UTC (convenzione del progetto).
             created_at = (
                 datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
-                .astimezone(timezone.utc)
+                .astimezone(UTC)
                 .replace(tzinfo=None)
             )
         name = node.get("name") or "(prodotto sconosciuto)"

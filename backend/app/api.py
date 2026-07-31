@@ -12,11 +12,13 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.appconfig import get_config
+from app.config import get_settings
 from app.db import get_session, init_db
 from app.export import ideas_to_csv
 from app.models import Idea, IdeaStatus, Run, utcnow
 from app.pipeline import execute_run
 from app.queries import (
+    count_ideas,
     idea_history,
     ideas_per_profile,
     latest_score_for,
@@ -27,7 +29,6 @@ from app.queries import (
     topics_overview,
     ungrouped_per_profile,
 )
-from app.config import get_settings
 from app.runlock import RunLockBusy, run_lock_busy
 from app.videos import trending_videos
 
@@ -257,6 +258,7 @@ def health() -> dict[str, str]:
 
 @app.get("/ideas", response_model=None)
 def list_ideas(
+    response: Response,
     session: Session = Depends(get_db),
     status: IdeaStatus | None = None,
     topic_id: int | None = None,
@@ -265,6 +267,7 @@ def list_ideas(
     include_dismissed: bool = False,
     profile: str | None = None,
     ungrouped: bool = False,
+    q: str | None = Query(default=None, max_length=200),
     format: Literal["json", "csv"] = "json",
 ) -> list[IdeaOut] | Response:
     """Idee ordinate (pinnate prima, poi composite): filtri e paginazione in SQL.
@@ -273,24 +276,31 @@ def list_ideas(
     le scartate a mano con ``?include_dismissed=true``, e ``?profile=<nome>``
     mostra il radar dal punto di vista di un tema solo.
     ``?ungrouped=true`` restituisce le idee che non stanno in nessun topic.
+    ``?q=`` cerca (in SQL) su etichetta, sommario e nome del tema.
     ``?format=csv`` restituisce le stesse righe, stessi filtri, come CSV.
+    ``X-Total-Count`` dice quante idee passano i filtri in tutto: la pagina
+    caricata non va spacciata per l'archivio.
     """
-    rows = top_ideas(
-        session,
-        limit=limit,
+    filters = dict(
         status=status,
         topic_id=topic_id,
-        offset=offset,
         include_dismissed=include_dismissed,
         profile=profile,
         ungrouped=ungrouped,
+        q=q,
     )
+    rows = top_ideas(session, limit=limit, offset=offset, **filters)
+    total = count_ideas(session, **filters)
     if format == "csv":
         return Response(
             content=ideas_to_csv(rows),
             media_type="text/csv; charset=utf-8",
-            headers={"Content-Disposition": 'attachment; filename="ideas.csv"'},
+            headers={
+                "Content-Disposition": 'attachment; filename="ideas.csv"',
+                "X-Total-Count": str(total),
+            },
         )
+    response.headers["X-Total-Count"] = str(total)
     return [_idea_out(idea, score) for idea, score in rows]
 
 

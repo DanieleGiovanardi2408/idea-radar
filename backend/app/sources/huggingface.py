@@ -21,7 +21,7 @@ nell'engagement del profilo.
 
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 
@@ -224,7 +224,7 @@ def _parse_iso(value: str | None) -> datetime | None:
     try:
         return (
             datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-            .astimezone(timezone.utc)
+            .astimezone(UTC)
             .replace(tzinfo=None)
         )
     except ValueError:

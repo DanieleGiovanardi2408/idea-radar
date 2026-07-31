@@ -58,6 +58,38 @@ def test_generate_insight_raises_when_required() -> None:
         generate_insight(_item(), Settings(llm_required=True), ollama=ollama)
 
 
+def _model_recorder(payload: dict) -> tuple[list[str], httpx.Client]:
+    """Un client finto che registra QUALE modello viene chiesto a Ollama."""
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content)["model"])
+        return httpx.Response(200, json={"response": json.dumps(payload)})
+
+    return seen, httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def test_insight_uses_dedicated_model_when_set() -> None:
+    """OLLAMA_INSIGHT_MODEL vale SOLO per gli insight per-item (il collo di
+    bottiglia): le etichette dei topic restano sul modello di default."""
+    settings = Settings(ollama_model="qwen2.5:7b", ollama_insight_model="qwen2.5:3b")
+    seen, client = _model_recorder({"summary": "s", "why_text": "w", "difficulty": "low"})
+    OllamaClient(settings, client=client).insight(_item())
+    assert seen == ["qwen2.5:3b"]
+
+    seen, client = _model_recorder({"label": "agenti AI"})
+    OllamaClient(settings, client=client).topic_label(["a", "b"])
+    assert seen == ["qwen2.5:7b"]
+
+
+def test_insight_model_falls_back_to_default() -> None:
+    settings = Settings(ollama_model="qwen2.5:7b", ollama_insight_model=None)
+    assert settings.insight_model == "qwen2.5:7b"
+    seen, client = _model_recorder({"summary": "s", "why_text": "w", "difficulty": "low"})
+    OllamaClient(settings, client=client).insight(_item())
+    assert seen == ["qwen2.5:7b"]
+
+
 def _labeler(label: str) -> OllamaClient:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"response": json.dumps({"label": label})})

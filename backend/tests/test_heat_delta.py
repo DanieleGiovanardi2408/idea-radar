@@ -13,6 +13,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
+from fakes import EmbedManyMixin
 from sqlmodel import Session, create_engine, select
 
 from app.appconfig import AppConfig, ClusteringConfig, ScoringConfig
@@ -22,7 +23,6 @@ from app.llm import IdeaInsight
 from app.models import Difficulty, Item, ItemStat, Score, utcnow
 from app.pipeline import run_pipeline
 from app.scoring import score_item
-from fakes import EmbedManyMixin
 
 
 def _cfg() -> AppConfig:

@@ -10,7 +10,7 @@ una SOLA richiesta per fetch, con tutte le categorie in OR in un'unica
 ``search_query`` invece di una chiamata per categoria.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from xml.etree import ElementTree
 
 import httpx
@@ -143,7 +143,7 @@ class ArxivSource:
             # ISO 8601 -> naive UTC (convenzione del progetto).
             created_at = (
                 datetime.fromisoformat(published.replace("Z", "+00:00"))
-                .astimezone(timezone.utc)
+                .astimezone(UTC)
                 .replace(tzinfo=None)
             )
 

@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from fakes import EmbedManyMixin
 from sqlmodel import Session, create_engine, select
 
 from app.appconfig import AppConfig, ClusteringConfig, ScoringConfig
@@ -13,7 +14,6 @@ from app.db import init_db
 from app.llm import IdeaInsight
 from app.models import Idea, Item, Topic
 from app.pipeline import recluster_topics, run_pipeline
-from fakes import EmbedManyMixin
 
 
 class FakeSource:

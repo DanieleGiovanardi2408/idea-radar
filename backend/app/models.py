@@ -1,6 +1,6 @@
 """Modelli SQLModel di Idea Radar."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 
 from sqlalchemy import JSON, Column
@@ -9,7 +9,7 @@ from sqlmodel import Field, Relationship, SQLModel, UniqueConstraint
 
 def utcnow() -> datetime:
     """UTC naive: SQLite non conserva la tzinfo, quindi tutto il progetto usa naive."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class Difficulty(str, Enum):

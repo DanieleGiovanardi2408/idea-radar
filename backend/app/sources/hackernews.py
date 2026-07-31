@@ -1,6 +1,6 @@
 """Collector Hacker News tramite la Firebase API pubblica (nessun token)."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 
@@ -66,7 +66,7 @@ class HackerNewsSource:
     def _to_item(raw: dict) -> Item:
         created = raw.get("time")
         created_at = (
-            datetime.fromtimestamp(created, tz=timezone.utc).replace(tzinfo=None)
+            datetime.fromtimestamp(created, tz=UTC).replace(tzinfo=None)
             if created
             else None
         )

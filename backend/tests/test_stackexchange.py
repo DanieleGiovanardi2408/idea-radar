@@ -1,6 +1,6 @@
 """Collector Stack Exchange: misura la domanda insoddisfatta, non l'offerta."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 
@@ -10,7 +10,7 @@ from app.sources.base import create_source
 from app.sources.profiles import profile_for
 from app.sources.stackexchange import PROFILE, StackExchangeSource
 
-TODAY = datetime(2026, 7, 27, tzinfo=timezone.utc)
+TODAY = datetime(2026, 7, 27, tzinfo=UTC)
 
 
 def _app_config(keywords: list[str] | None = None) -> AppConfig:
@@ -68,7 +68,7 @@ def test_asks_for_recent_and_most_voted_questions() -> None:
     assert params["tagged"] == "langchain"
     assert params["site"] == "stackoverflow"
     assert params["filter"] == "withbody"  # serve il testo per embedding e insight
-    expected = int((TODAY.timestamp())) - 30 * 86400
+    expected = int(TODAY.timestamp()) - 30 * 86400
     assert abs(params["fromdate"] - expected) < 2
 
 
@@ -131,7 +131,7 @@ def test_body_is_stripped_and_tags_are_kept_for_the_fit() -> None:
 
     assert "<p>" not in item.text and "<code>" not in item.text
     assert "[langchain, python]" in item.text  # i tag aiutano fit e clustering
-    assert item.created_at == datetime.fromtimestamp(1785000000, tz=timezone.utc).replace(
+    assert item.created_at == datetime.fromtimestamp(1785000000, tz=UTC).replace(
         tzinfo=None
     )
     assert item.created_at.tzinfo is None

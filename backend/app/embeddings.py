@@ -239,7 +239,7 @@ def embed_items(
         return {}
     done = {
         item.id: vector
-        for item, vector in zip(candidates, vectors)
+        for item, vector in zip(candidates, vectors, strict=False)
         if vector is not None and item.id is not None
     }
     if len(done) < len(candidates):
@@ -257,7 +257,7 @@ def cosine(a: Vector, b: Vector) -> float:
     """Similarità coseno in [-1, 1] (0 se un vettore è nullo o di lunghezza diversa)."""
     if not a or not b or len(a) != len(b):
         return 0.0
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=True))  # lunghezze già verificate sopra
     norm_a = math.sqrt(sum(x * x for x in a))
     norm_b = math.sqrt(sum(y * y for y in b))
     if norm_a == 0 or norm_b == 0:

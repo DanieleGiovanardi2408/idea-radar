@@ -82,11 +82,12 @@ def ollama_preflight(
             name == wanted or name.startswith(f"{wanted}:") for name in available
         )
 
-    missing = [
-        model
-        for model in (settings.ollama_model, settings.embedding_model)
-        if not _present(model)
-    ]
+    # dict.fromkeys: dedupe conservando l'ordine (insight_model di default
+    # È ollama_model, e non va chiesto — né segnalato mancante — due volte).
+    wanted = dict.fromkeys(
+        (settings.ollama_model, settings.insight_model, settings.embedding_model)
+    )
+    missing = [model for model in wanted if not _present(model)]
     if missing:
         return False, (
             "modelli mancanti in Ollama: "

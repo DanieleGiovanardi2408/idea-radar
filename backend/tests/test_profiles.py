@@ -14,7 +14,6 @@ from app.appconfig import (
     AppConfig,
     ProfileConfig,
     ScoringConfig,
-    SourceConfig,
 )
 from app.llm import IdeaInsight
 from app.models import Item

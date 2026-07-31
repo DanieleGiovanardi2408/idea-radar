@@ -10,6 +10,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
+from fakes import EmbedManyMixin
 from sqlmodel import Session, create_engine, select
 
 from app.appconfig import AppConfig, ClusteringConfig, LifecycleConfig, ScoringConfig
@@ -20,7 +21,6 @@ from app.llm import IdeaInsight
 from app.models import Idea, IdeaStatus, Item, utcnow
 from app.pipeline import run_pipeline
 from app.queries import top_ideas
-from fakes import EmbedManyMixin
 
 
 class FakeSource:

@@ -6,7 +6,7 @@ stessi 31 repo (freeCodeCamp 452k stelle, tensorflow 196k), 22 creati prima del
 2024 — l'opposto del "2k stelle in tre mesi" che il radar dice di cercare.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
@@ -14,7 +14,7 @@ from app.appconfig import AppConfig, ScoringConfig, SourceConfig
 from app.config import Settings
 from app.sources.github import GitHubSource
 
-TODAY = datetime(2026, 7, 27, tzinfo=timezone.utc)
+TODAY = datetime(2026, 7, 27, tzinfo=UTC)
 
 
 def _app_config(keywords: list[str] | None = None) -> AppConfig:
@@ -151,7 +151,7 @@ def test_the_quota_is_split_across_bands_not_won_by_the_oldest() -> None:
 
     def _band_marker(days: int) -> str:
         # Lo stesso calcolo di search_query: il bordo giovane della fascia.
-        return (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+        return (datetime.now(UTC) - timedelta(days=days)).date().isoformat()
 
     def handler(request: httpx.Request) -> httpx.Response:
         query = request.url.params["q"]

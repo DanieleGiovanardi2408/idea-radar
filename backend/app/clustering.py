@@ -281,7 +281,7 @@ def assign_ideas_to_topics(
     def piu_vicino(idea_unit: Vector) -> tuple[Topic | None, float]:
         best: Topic | None = None
         best_sim = -1.0
-        for topic, topic_unit in zip(topics, topic_units):
+        for topic, topic_unit in zip(topics, topic_units, strict=True):
             if topic_unit is None:
                 continue
             sim = dot(idea_unit, topic_unit)

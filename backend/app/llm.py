@@ -168,13 +168,13 @@ class OllamaClient:
         self._client = client
         self._owns_client = client is None
 
-    def _generate_json(self, prompt: str) -> dict:
+    def _generate_json(self, prompt: str, model: str | None = None) -> dict:
         client = self._client or httpx.Client(timeout=120.0)
         try:
             resp = client.post(
                 f"{self.settings.ollama_host}/api/generate",
                 json={
-                    "model": self.settings.ollama_model,
+                    "model": model or self.settings.ollama_model,
                     "prompt": prompt,
                     "stream": False,
                     "format": "json",
@@ -189,6 +189,8 @@ class OllamaClient:
                 client.close()
 
     def insight(self, item: Item) -> IdeaInsight:
+        # L'unica chiamata sul modello *insight*: è quella per-item (il collo di
+        # bottiglia dei run), quindi l'unica dove un modello più piccolo paga.
         data = self._generate_json(
             _PROMPT.format(
                 title=item.title,
@@ -196,7 +198,8 @@ class OllamaClient:
                 author=item.author or "(ignoto)",
                 engagement=item.engagement_json or {},
                 text=_item_context(item),
-            )
+            ),
+            model=self.settings.insight_model,
         )
         return IdeaInsight(
             summary=str(data.get("summary") or item.title)[:500],

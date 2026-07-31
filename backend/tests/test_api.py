@@ -93,6 +93,45 @@ def test_ideas_filters(client: TestClient, session: Session) -> None:
     assert client.get("/ideas", params={"topic_id": 999}).json() == []
 
 
+def test_ideas_search_q(client: TestClient, session: Session) -> None:
+    """La ricerca è in SQL: etichetta, sommario e nome del tema, case-insensitive."""
+    _seed(session)
+    other = Idea(
+        label="Sensore per serre", summary="monitoraggio umidità con LoRa"
+    )
+    session.add(other)
+    session.commit()
+
+    # Sull'etichetta, ignorando il maiuscolo/minuscolo.
+    hits = client.get("/ideas", params={"q": "idea a"}).json()
+    assert [i["label"] for i in hits] == ["Idea A"]
+    # Sul sommario.
+    hits = client.get("/ideas", params={"q": "umidità"}).json()
+    assert [i["label"] for i in hits] == ["Sensore per serre"]
+    # Sul nome del tema.
+    hits = client.get("/ideas", params={"q": "agenti"}).json()
+    assert [i["label"] for i in hits] == ["Idea A"]
+    # Nessun match: lista vuota, non un errore.
+    assert client.get("/ideas", params={"q": "zzz"}).json() == []
+    # I jolly di LIKE sono testo literale, non wildcard.
+    assert client.get("/ideas", params={"q": "%"}).json() == []
+
+
+def test_ideas_total_count_header(client: TestClient, session: Session) -> None:
+    """X-Total-Count dice il totale filtrato, non la dimensione della pagina."""
+    _seed(session)
+    for n in range(3):
+        session.add(Idea(label=f"Extra {n}"))
+    session.commit()
+
+    res = client.get("/ideas", params={"limit": 2})
+    assert len(res.json()) == 2
+    assert res.headers["X-Total-Count"] == "4"
+    # Il conteggio rispetta gli stessi filtri della lista.
+    res = client.get("/ideas", params={"q": "extra"})
+    assert res.headers["X-Total-Count"] == "3"
+
+
 def test_idea_detail_includes_history(client: TestClient, session: Session) -> None:
     idea = _seed(session, runs=3)
     data = client.get(f"/ideas/{idea.id}").json()
