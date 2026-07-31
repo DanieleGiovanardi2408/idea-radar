@@ -1,32 +1,32 @@
-# React + TypeScript + Vite
+# Idea Radar — frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Interfaccia web del radar: Vite + React 19 + TypeScript, Tailwind CSS v4, React Router, TanStack Query. Il design system ("radar room") vive in `src/index.css`. Per la panoramica del progetto vedi il [README principale](../README.md).
 
-Currently, two official plugins are available:
+## Comandi
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install        # prima volta
+npm run dev        # http://localhost:5173, proxy verso il backend su :8000
+npm test           # vitest, una passata
+npm run test:watch # vitest in watch mode
+npm run lint       # oxlint
+npm run typecheck  # tsc -b
+npm run build      # typecheck + build di produzione
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+In dev il backend è raggiunto tramite il proxy Vite (`vite.config.ts`): niente CORS. Se il backend è su un'altra porta: `BACKEND_URL=http://localhost:8001 npm run dev`. Ogni rotta API nuova va aggiunta alla lista del proxy in `vite.config.ts`.
+
+## Struttura
+
+```
+src/
+  App.tsx          # shell: header, nav su URL, drawer con deep-link ?idea=<id>
+  api.ts           # client tipato verso il backend
+  types.ts         # tipi condivisi delle risposte API
+  hooks/           # useRadarData (TanStack Query), useFocusTrap
+  components/      # RadarScope, IdeaCard, IdeaDetail, Nav, ui.tsx, motion.tsx
+  views/           # Radar, Topics, Trends, Monitor
+  index.css        # tema Tailwind v4 + design system
+```
+
+I test stanno accanto ai file che verificano (`*.test.tsx`); setup condiviso in `src/test/`.

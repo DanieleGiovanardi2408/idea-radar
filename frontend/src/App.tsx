@@ -91,7 +91,7 @@ function App() {
   }
 
   const counts: Record<string, number | undefined> = {
-    '/radar': ideas?.length,
+    '/radar': ideas?.total,
     '/topics': topics?.length,
   }
 

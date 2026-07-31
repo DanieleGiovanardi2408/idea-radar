@@ -6,8 +6,14 @@
  * tutto si aggiorna ogni 2s (il monitor è "live"), altrimenti niente. */
 
 import { useEffect, useRef } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { api } from '../api'
+import type { IdeaPage } from '../api'
 import type { IdeaDetailOut, IdeaOut, PatchIdeaBody, StatsOut } from '../types'
 
 const LIVE_MS = 2000
@@ -36,22 +42,48 @@ function liveInterval(running: boolean): number | false {
   return running ? LIVE_MS : false
 }
 
+export const IDEAS_PAGE_SIZE = 100
+
+/** Le idee, a pagine: filtri, ricerca e paginazione vivono sul server.
+
+ *  Il dato esposto è già piatto (`rows` cumulative + `total` filtrato):
+ *  `fetchNextPage` aggiunge la pagina successiva, e `total` viene da
+ *  X-Total-Count, quindi la UI può dire "N di T" senza contare a occhio. */
 export function useIdeas(opts?: {
   includeDismissed?: boolean
   enabled?: boolean
   /** Nome del profilo: mostra il radar dal punto di vista di un tema solo. */
   profile?: string | null
+  /** Solo le proposte (sopra soglia), filtrate dal server. */
+  status?: 'proposed' | null
+  /** Ricerca full-archive, in SQL: etichetta, sommario, nome del tema. */
+  q?: string
 }) {
   const running = useIsRunning()
   const includeDismissed = opts?.includeDismissed ?? false
   const profile = opts?.profile ?? null
-  return useQuery({
-    queryKey: ['ideas', { includeDismissed, profile }],
-    queryFn: () =>
+  const status = opts?.status ?? null
+  const q = opts?.q?.trim() ?? ''
+  return useInfiniteQuery({
+    queryKey: ['ideas', { includeDismissed, profile, status, q }],
+    queryFn: ({ pageParam }) =>
       api.ideas({
+        offset: pageParam,
+        limit: IDEAS_PAGE_SIZE,
         ...(includeDismissed ? { include_dismissed: true } : {}),
         ...(profile ? { profile } : {}),
+        ...(status ? { status } : {}),
+        ...(q ? { q } : {}),
       }),
+    initialPageParam: 0,
+    getNextPageParam: (last, all) => {
+      const loaded = all.reduce((n, page) => n + page.rows.length, 0)
+      return loaded < last.total ? loaded : undefined
+    },
+    select: (data) => ({
+      rows: data.pages.flatMap((page) => page.rows),
+      total: data.pages[0]?.total ?? 0,
+    }),
     enabled: opts?.enabled ?? true,
     refetchInterval: liveInterval(running),
   })
@@ -84,6 +116,7 @@ export function useTopicIdeas(topicId: number | null) {
   return useQuery({
     queryKey: ['ideas', { topicId }],
     queryFn: () => api.ideas({ topic_id: topicId as number }),
+    select: (page) => page.rows,
     enabled: topicId !== null,
     refetchInterval: liveInterval(running),
   })
@@ -101,6 +134,7 @@ export function useUngroupedIdeas(profile: string | null, enabled: boolean) {
     queryKey: ['ideas', { ungrouped: true, profile }],
     queryFn: () =>
       api.ideas({ ungrouped: true, ...(profile ? { profile } : {}) }),
+    select: (page) => page.rows,
     enabled,
     refetchInterval: liveInterval(running),
   })
@@ -204,6 +238,26 @@ function optimistic<T extends Pick<IdeaOut, 'pinned' | 'dismissed_at' | 'note'>>
   return next
 }
 
+/** Le forme grezze sotto la chiave ['ideas', …]: pagina singola o infinita. */
+type IdeasCache = IdeaPage | { pages: IdeaPage[]; pageParams: unknown[] }
+
+function patchRows(rows: IdeaOut[], id: number, body: PatchIdeaBody): IdeaOut[] {
+  return rows.map((row) => (row.id === id ? optimistic(row, body) : row))
+}
+
+function patchIdeasCache(data: IdeasCache, id: number, body: PatchIdeaBody): IdeasCache {
+  if ('pages' in data) {
+    return {
+      ...data,
+      pages: data.pages.map((page) => ({
+        ...page,
+        rows: patchRows(page.rows, id, body),
+      })),
+    }
+  }
+  return { ...data, rows: patchRows(data.rows, id, body) }
+}
+
 /** Azioni utente su un'idea, con effetto immediato in UI.
  *
  *  Ogni chiamata a questo hook è una mutation INDIPENDENTE: va usata una per
@@ -230,13 +284,12 @@ export function usePatchIdea() {
         )
       }
       // Tutte le liste in cache (radar, scartate, per topic) in un colpo.
-      const lists = queryClient.getQueriesData<IdeaOut[]>({ queryKey: ['ideas'] })
-      for (const [key, list] of lists) {
-        if (!list) continue
-        queryClient.setQueryData<IdeaOut[]>(
-          key,
-          list.map((row) => (row.id === id ? optimistic(row, body) : row)),
-        )
+      // In cache vivono due forme GREZZE (`select` agisce solo in uscita):
+      // le query semplici tengono una IdeaPage, le infinite {pages, pageParams}.
+      const lists = queryClient.getQueriesData<IdeasCache>({ queryKey: ['ideas'] })
+      for (const [key, data] of lists) {
+        if (!data) continue
+        queryClient.setQueryData<IdeasCache>(key, patchIdeasCache(data, id, body))
       }
       return { previous, lists }
     },

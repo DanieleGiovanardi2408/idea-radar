@@ -12,9 +12,9 @@ dist
 dist-ssr
 *.local
 
-# Vitest compila vitest.config.ts in un file temporaneo accanto ad esso e a
-# volte non riesce a cancellarlo: sono scarti di un test, non codice.
-vitest.config.ts.timestamp-*
+# Vite e Vitest compilano i loro config in file temporanei accanto ad essi e a
+# volte non riescono a cancellarli: sono scarti di build, non codice.
+*.config.ts.timestamp-*
 
 # Editor directories and files
 .vscode/*

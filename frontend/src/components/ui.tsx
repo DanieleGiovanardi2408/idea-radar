@@ -295,6 +295,7 @@ export function AreaSpark({
           "su N run" nel dossier), quindi renderla percorribile punto per punto
           aggiungerebbe fermate di Tab per rileggere le stesse cifre. Il tooltip
           al passaggio del mouse resta una comodità, non l'unica via al dato. */}
+      {/* oxlint-disable-next-line no-noninteractive-element-interactions */}
       <svg
         ref={svgRef}
         width={width}

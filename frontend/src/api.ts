@@ -17,6 +17,13 @@ async function get<T>(path: string): Promise<T> {
   return res.json() as Promise<T>
 }
 
+/** Una pagina di `/ideas`: le righe più il totale filtrato (X-Total-Count),
+ *  così la UI può dire "N di T" invece di spacciare la pagina per l'archivio. */
+export interface IdeaPage {
+  rows: IdeaOut[]
+  total: number
+}
+
 export const api = {
   health: () => get<{ status: string }>('/health'),
   profiles: () => get<ProfileOut[]>('/profiles'),
@@ -28,23 +35,32 @@ export const api = {
     const qs = q.toString()
     return get<VideosOut>(`/videos${qs ? `?${qs}` : ''}`)
   },
-  ideas: (params?: {
+  ideas: async (params?: {
     status?: string
     topic_id?: number
     offset?: number
+    limit?: number
     include_dismissed?: boolean
     profile?: string
     ungrouped?: boolean
-  }) => {
+    q?: string
+  }): Promise<IdeaPage> => {
     const q = new URLSearchParams()
     if (params?.status) q.set('status', params.status)
     if (params?.topic_id !== undefined) q.set('topic_id', String(params.topic_id))
     if (params?.offset !== undefined) q.set('offset', String(params.offset))
+    if (params?.limit !== undefined) q.set('limit', String(params.limit))
     if (params?.include_dismissed) q.set('include_dismissed', 'true')
     if (params?.profile) q.set('profile', params.profile)
     if (params?.ungrouped) q.set('ungrouped', 'true')
+    if (params?.q) q.set('q', params.q)
     const qs = q.toString()
-    return get<IdeaOut[]>(`/ideas${qs ? `?${qs}` : ''}`)
+    const path = `/ideas${qs ? `?${qs}` : ''}`
+    const res = await fetch(path)
+    if (!res.ok) throw new Error(`HTTP ${res.status} su ${path}`)
+    const rows = (await res.json()) as IdeaOut[]
+    const total = Number(res.headers.get('X-Total-Count') ?? rows.length)
+    return { rows, total: Number.isFinite(total) ? total : rows.length }
   },
   idea: (id: number) => get<IdeaDetailOut>(`/ideas/${id}`),
   patchIdea: async (id: number, body: PatchIdeaBody): Promise<IdeaOut> => {

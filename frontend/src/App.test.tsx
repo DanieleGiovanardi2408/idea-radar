@@ -8,10 +8,11 @@
  * sempre da un link a /radar, ed è finito in uno screenshot del README.
  * Questi test guardano "/" apposta. */
 
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import App from './App'
-import { fakeIdeaOut, mockFetch, renderWithProviders } from './test/utils'
+import { fakeIdea, fakeIdeaOut, mockFetch, renderWithProviders } from './test/utils'
 
 const VUOTO = {
   '/stats': { last_run: null, n_runs: 3 },
@@ -37,6 +38,9 @@ const VUOTO = {
 function apri(route: string) {
   mockFetch({
     ...VUOTO,
+    // Prima la rotta più specifica: mockFetch sceglie la PRIMA chiave che
+    // combacia, e '/ideas' da solo catturerebbe anche '/ideas/1'.
+    '/ideas/1': fakeIdea({ id: 1, label: 'Un runtime per agenti locali' }),
     '/ideas': [fakeIdeaOut({ id: 1, label: 'Un runtime per agenti locali' })],
   })
   return renderWithProviders(<App />, undefined, route)
@@ -61,6 +65,36 @@ describe('indirizzo di ingresso', () => {
   it('su "/radar" mostra le stesse cose', async () => {
     apri('/radar')
     expect(await screen.findByText('Tema')).toBeInTheDocument()
+    expect(await screen.findByTestId('idea-card')).toBeInTheDocument()
+  })
+})
+
+describe('deep-link ?idea=', () => {
+  /* Il drawer vive nella query string, sopra qualunque vista: è l'invariante
+   * dichiarata dal commento in App.tsx, e nessun test la copriva. */
+
+  it('?idea=1 apre il dossier già all\'arrivo', async () => {
+    apri('/radar?idea=1')
+    expect(await screen.findByTestId('idea-detail')).toBeInTheDocument()
+  })
+
+  it('vale su ogni vista, non solo sul radar', async () => {
+    apri('/monitor?idea=1')
+    expect(await screen.findByTestId('idea-detail')).toBeInTheDocument()
+  })
+
+  it('un id non numerico non apre nulla', async () => {
+    apri('/radar?idea=abc')
+    await screen.findByTestId('idea-card')
+    expect(screen.queryByTestId('idea-detail')).toBeNull()
+  })
+
+  it('chiudere il dossier pulisce la query string', async () => {
+    apri('/radar?idea=1')
+    await screen.findByTestId('idea-detail')
+    await userEvent.click(screen.getByRole('button', { name: 'Chiudi' }))
+    await waitFor(() => expect(screen.queryByTestId('idea-detail')).toBeNull())
+    // La card sotto è ancora lì: si è chiuso il drawer, non la vista.
     expect(await screen.findByTestId('idea-card')).toBeInTheDocument()
   })
 })

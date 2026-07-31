@@ -247,6 +247,7 @@ export function TrendingVideos() {
           {stopped ? (
             <button
               onClick={() => setStopped(false)}
+              aria-label="Riprendi la riproduzione"
               className="group relative block w-full overflow-hidden rounded-xl ring-1 ring-white/10"
             >
               <img

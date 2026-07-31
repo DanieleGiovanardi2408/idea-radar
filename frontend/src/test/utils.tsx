@@ -69,9 +69,15 @@ export function fakeIdeaOut(overrides: Partial<IdeaOut> = {}): IdeaOut {
   return idea
 }
 
-/** Sostituisce `fetch` con una tabella rotta-per-rotta. */
+/** Sostituisce `fetch` con una tabella rotta-per-rotta.
+ *
+ *  Una route può essere una funzione `(init, url) => payload`: l'url completo
+ *  (query string inclusa) serve a chi deve rispondere in modo diverso per
+ *  pagina o per filtro. Se il payload è una `Response` viene usato così com'è —
+ *  attenzione: una `Response` si consuma una volta sola, quindi per route
+ *  chiamate più volte va COSTRUITA dentro la funzione, non condivisa. */
 export function mockFetch(
-  routes: Record<string, unknown | ((init?: RequestInit) => unknown)>,
+  routes: Record<string, unknown | ((init?: RequestInit, url?: string) => unknown)>,
 ): { calls: { url: string; method: string; body: unknown }[] } {
   const calls: { url: string; method: string; body: unknown }[] = []
   vi.stubGlobal(
@@ -89,7 +95,7 @@ export function mockFetch(
         return new Response('non gestita', { status: 404 })
       }
       const value = routes[key]
-      const payload = typeof value === 'function' ? value(init) : value
+      const payload = typeof value === 'function' ? value(init, url) : value
       if (payload instanceof Response) return payload
       return new Response(JSON.stringify(payload), {
         status: 200,

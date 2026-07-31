@@ -126,6 +126,9 @@ export function IdeaDetail({
       aria-label={idea ? idea.label : 'Dettaglio idea'}
       data-testid="idea-detail"
     >
+      {/* Backdrop: il click chiude, come da convenzione dei drawer; la via da
+          tastiera è Escape (gestito sopra), non un finto bottone a schermo intero. */}
+      {/* oxlint-disable-next-line click-events-have-key-events, no-static-element-interactions */}
       <div
         className="overlay-enter absolute inset-0 bg-abyss/75 backdrop-blur-sm"
         onClick={onClose}

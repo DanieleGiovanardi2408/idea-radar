@@ -2,19 +2,10 @@ import { useMemo, useState } from 'react'
 import { IdeaCard } from '../components/IdeaCard'
 import { RadarScope } from '../components/RadarScope'
 import { EmptyState, ErrorNotice, SkeletonCard } from '../components/ui'
+import { useDebounced } from '../hooks/useDebounced'
 import { useIdeas, useProfiles } from '../hooks/useRadarData'
-import type { IdeaOut } from '../types'
 
 type Filter = 'proposed' | 'all'
-
-function matchesQuery(idea: IdeaOut, q: string): boolean {
-  return (
-    !q ||
-    idea.label.toLowerCase().includes(q) ||
-    (idea.why_text ?? '').toLowerCase().includes(q) ||
-    (idea.topic_label ?? '').toLowerCase().includes(q)
-  )
-}
 
 export function RadarView({ onSelect }: { onSelect: (id: number) => void }) {
   const [filter, setFilter] = useState<Filter>('proposed')
@@ -22,36 +13,45 @@ export function RadarView({ onSelect }: { onSelect: (id: number) => void }) {
   const [query, setQuery] = useState('')
   // null = tutti i temi. Il filtro è server-side: il profilo vive sullo score.
   const [profile, setProfile] = useState<string | null>(null)
+  // La ricerca è server-side (etichetta, sommario, tema, su TUTTO l'archivio):
+  // il debounce fa partire una query per pausa di digitazione, non per tasto.
+  const q = useDebounced(query.trim(), 300)
 
   const { data: profiles = [] } = useProfiles()
-  const { data: ideas = [], isPending, isError } = useIdeas({ profile })
+
+  // Il quadrante mostra il vivo, qualunque cosa filtri la lista sotto.
+  const scopeQuery = useIdeas({ profile })
+  const scopeIdeas = scopeQuery.data?.rows ?? []
+
+  // La lista: filtri, ricerca e paginazione li applica il server.
+  const listQuery = useIdeas({
+    profile,
+    status: filter === 'proposed' ? 'proposed' : null,
+    q,
+  })
   // Le scartate vivono in una query a parte, caricata solo quando servono:
   // il server le esclude di default, con include_dismissed le riporta tutte.
   const dismissedQuery = useIdeas({
     includeDismissed: true,
     enabled: showDismissed,
     profile,
+    q,
   })
   const dismissedIdeas = useMemo(
-    () => (dismissedQuery.data ?? []).filter((i) => i.dismissed_at !== null),
+    () => (dismissedQuery.data?.rows ?? []).filter((i) => i.dismissed_at !== null),
     [dismissedQuery.data],
   )
 
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    const base = showDismissed
-      ? dismissedIdeas
-      : ideas.filter((i) => (filter === 'proposed' ? i.status === 'proposed' : true))
-    return base.filter((i) => matchesQuery(i, q))
-  }, [ideas, dismissedIdeas, showDismissed, filter, query])
+  const active = showDismissed ? dismissedQuery : listQuery
+  const visible = showDismissed ? dismissedIdeas : (listQuery.data?.rows ?? [])
+  const total = listQuery.data?.total ?? 0
+  const loaded = listQuery.data?.rows.length ?? 0
 
-  const proposedCount = ideas.filter((i) => i.status === 'proposed').length
-
-  if (isError) {
+  if (scopeQuery.isError) {
     return <ErrorNotice>Impossibile caricare le idee dal backend.</ErrorNotice>
   }
 
-  if (isPending && ideas.length === 0) {
+  if (scopeQuery.isPending && scopeIdeas.length === 0) {
     return (
       <div className="grid gap-3">
         <SkeletonCard />
@@ -97,7 +97,7 @@ export function RadarView({ onSelect }: { onSelect: (id: number) => void }) {
       </div>
     ) : null
 
-  if (ideas.length === 0 && !showDismissed) {
+  if (scopeIdeas.length === 0 && !showDismissed && !q) {
     return (
       <div className="space-y-4">
         {themes}
@@ -114,7 +114,7 @@ export function RadarView({ onSelect }: { onSelect: (id: number) => void }) {
     <div className="space-y-4">
       {themes}
       {/* Il quadrante: tutte le idee vive, qualunque sia il filtro della lista */}
-      <RadarScope ideas={ideas} onSelect={onSelect} />
+      <RadarScope ideas={scopeIdeas} onSelect={onSelect} />
 
       <div className="glass flex flex-wrap items-center gap-3 rounded-2xl p-2">
         <div
@@ -124,15 +124,17 @@ export function RadarView({ onSelect }: { onSelect: (id: number) => void }) {
         >
           {(
             [
-              ['proposed', `Sopra soglia (${proposedCount})`],
-              // `/ideas` è paginato: questo è il numero caricato, non il totale
-              // in archivio. Chiamarlo "Tutte" era una piccola bugia.
-              ['all', `Caricate (${ideas.length})`],
+              // Il conteggio è X-Total-Count del server, sull'intero archivio
+              // filtrato: compare solo sul filtro attivo, l'unico di cui il
+              // totale è noto senza una seconda query.
+              ['proposed', 'Sopra soglia'],
+              ['all', 'Tutte'],
             ] as [Filter, string][]
           ).map(([value, label]) => (
             <button
               key={value}
               onClick={() => setFilter(value)}
+              aria-pressed={filter === value}
               className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-300 ${
                 filter === value
                   ? 'bg-phosphor/15 text-phosphor shadow-[inset_0_0_0_1px_rgba(46,232,162,0.25)]'
@@ -140,6 +142,9 @@ export function RadarView({ onSelect }: { onSelect: (id: number) => void }) {
               }`}
             >
               {label}
+              {filter === value && !showDismissed && (
+                <span className="ml-1.5 tabular-nums opacity-60">{total}</span>
+              )}
             </button>
           ))}
         </div>
@@ -147,6 +152,7 @@ export function RadarView({ onSelect }: { onSelect: (id: number) => void }) {
         <div className="flex rounded-xl bg-white/[0.03] p-0.5">
           <button
             onClick={() => setShowDismissed((v) => !v)}
+            aria-pressed={showDismissed}
             className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-300 ${
               showDismissed
                 ? 'bg-flare/15 text-flare shadow-[inset_0_0_0_1px_rgba(251,113,133,0.25)]'
@@ -160,7 +166,8 @@ export function RadarView({ onSelect }: { onSelect: (id: number) => void }) {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Cerca tra le idee…"
+          aria-label="Cerca in tutto l'archivio"
+          placeholder="Cerca in tutto l'archivio…"
           className="min-w-0 flex-1 rounded-xl border border-transparent bg-white/[0.03] px-3.5 py-1.5 text-sm text-slate-200 transition-colors placeholder:text-slate-600 focus:border-phosphor/30 focus:bg-white/[0.05] focus:outline-none"
         />
       </div>
@@ -168,8 +175,11 @@ export function RadarView({ onSelect }: { onSelect: (id: number) => void }) {
       {showDismissed && dismissedQuery.isError && (
         <ErrorNotice>Impossibile caricare le idee scartate.</ErrorNotice>
       )}
+      {!showDismissed && listQuery.isError && (
+        <ErrorNotice>Impossibile caricare la lista dal backend.</ErrorNotice>
+      )}
 
-      {showDismissed && dismissedQuery.isPending ? (
+      {active.isPending ? (
         <div className="grid gap-3">
           <SkeletonCard />
           <SkeletonCard />
@@ -178,14 +188,33 @@ export function RadarView({ onSelect }: { onSelect: (id: number) => void }) {
         <EmptyState>
           {showDismissed
             ? 'Nessuna idea scartata: qui finiscono i segnali che archivi.'
-            : 'Nessuna idea corrisponde a questi filtri.'}
+            : q
+              ? `Nessuna idea trovata per "${q}" in tutto l'archivio.`
+              : 'Nessuna idea corrisponde a questi filtri.'}
         </EmptyState>
       ) : (
-        <div className="grid gap-3">
-          {visible.map((idea, index) => (
-            <IdeaCard key={idea.id} idea={idea} index={index} onSelect={onSelect} />
-          ))}
-        </div>
+        <>
+          <div className="grid gap-3">
+            {visible.map((idea, index) => (
+              <IdeaCard key={idea.id} idea={idea} index={index} onSelect={onSelect} />
+            ))}
+          </div>
+          {/* Paginazione onesta: quante ne vedi, quante ce ne sono, e il resto
+              si chiede al server invece di fingere che la pagina sia tutto. */}
+          {active.hasNextPage && (
+            <button
+              onClick={() => active.fetchNextPage()}
+              disabled={active.isFetchingNextPage}
+              className="glass w-full rounded-2xl px-4 py-2.5 text-xs font-medium text-slate-400 transition-colors hover:text-phosphor disabled:opacity-50"
+            >
+              {active.isFetchingNextPage
+                ? 'Carico…'
+                : showDismissed
+                  ? 'Carica altre'
+                  : `Carica altre (${loaded} di ${total})`}
+            </button>
+          )}
+        </>
       )}
     </div>
   )
