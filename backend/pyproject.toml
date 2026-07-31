@@ -17,6 +17,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=8.3",
+    "ruff>=0.9",
 ]
 
 [project.scripts]
@@ -31,3 +32,16 @@ packages = ["app"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+# E/F: pyflakes + pycodestyle; I: import ordering; B: bugbear; UP: modernizzazioni
+select = ["E", "F", "I", "B", "UP"]
+ignore = [
+    "E501",  # la lunghezza riga la decide il formatter, non il linter
+    "B008",  # Depends()/Query() nei default è l'idioma FastAPI
+    "UP042", # StrEnum cambia il risultato di str(): migrazione a parte, non un fix di lint
+]
