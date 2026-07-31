@@ -1,9 +1,13 @@
 <div align="center">
 
+<img src="frontend/public/favicon.svg" alt="Idea Radar logo" width="72"/>
+
 # Idea Radar
 
-**Surface rising tech opportunities before they saturate — not *what's popular*, but *what's climbing and still open*.**
+**Surface rising tech opportunities before they saturate.**<br/>
+*Not what's popular — what's climbing and still open.*
 
+[![CI](https://github.com/DanieleGiovanardi2408/idea-radar/actions/workflows/ci.yml/badge.svg)](https://github.com/DanieleGiovanardi2408/idea-radar/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-19-20232A?logo=react&logoColor=61DAFB)](https://react.dev/)
@@ -11,6 +15,8 @@
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-v4-38BDF8?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![LLM](https://img.shields.io/badge/LLM-Ollama%20(local)-000000?logo=ollama&logoColor=white)](https://ollama.com/)
 [![License](https://img.shields.io/badge/License-MIT-2EE8A2)](LICENSE)
+
+[Why](#-why) · [Features](#-features) · [How it works](#-how-it-works) · [The views](#-the-four-views) · [Quick start](#-quick-start) · [CLI](#-cli) · [Configuration](#-configuration) · [Roadmap](#-roadmap)
 
 <br/>
 
@@ -20,13 +26,28 @@
 
 ---
 
-Idea Radar collects signals from **Hacker News, GitHub, Hugging Face, Stack Exchange, npm, arXiv, Product Hunt, and 20 tech RSS feeds**, groups them by meaning, and ranks them by **opportunity**. The guiding idea: a project with 100k stars accumulated over six years is a *closed market*, not an opening. A repo with 2k stars in three months might be one. The radar is built to tell those two apart.
+## 💡 Why
 
-Everything runs on **free APIs and a local LLM** (via [Ollama](https://ollama.com/)) — no paid services, no cloud model calls, nothing leaves your machine.
+A project with 100k stars accumulated over six years is a **closed market**, not an opening. A repo with 2k stars in three months might be one. The radar is built to tell those two apart.
 
----
+Idea Radar collects signals from **8 free sources** — Hacker News, GitHub, Hugging Face, Stack Exchange, npm, arXiv, Product Hunt, and 20 tech RSS feeds — groups them by meaning with local embeddings, and ranks them by **opportunity**: velocity of growth, room left in the market, and fit with the themes *you* declare.
 
-## How it works
+Everything runs on **free APIs and a local LLM** via [Ollama](https://ollama.com/). No paid services, no cloud model calls, nothing leaves your machine.
+
+## ✨ Features
+
+- 🚀 **Opportunity-first ranking** — momentum beats accumulated popularity; saturation and off-topic act as *gates*, not weights
+- 🔥 **Measured heat** — growth velocity computed between real engagement observations (stars/day, points/day) on live-counter sources
+- 🧲 **Semantic deduplication** — the same launch on HN, GitHub and a blog collapses into one idea, with a drift-proof criterion that keeps big ideas from becoming catch-alls
+- 🎯 **Profiles** — named themes in config (`"AI agents"`, `"IoT"`), each with its own keywords and per-theme fit; the radar is multi-topic by design
+- 📌 **User actions** — pin, dismiss, annotate; your decisions persist across runs and are never overwritten by the pipeline
+- 📈 **Trends across runs** — topics persist between runs, so what's rising becomes measurable
+- 🔍 **Full-archive search** — server-side, in SQL, with honest pagination (`X-Total-Count`)
+- 🤖 **Local-only LLM** — summaries, "why it matters", difficulty estimates, next moves and business angles, all on your hardware, with per-idea caching so repeat runs only pay for new content
+- ⏰ **Hands-free scheduling** — a launchd agent runs the pipeline every few hours, with catch-up after sleep, cross-process locking and an Ollama preflight
+- 🛡️ **Resilient collection** — a broken feed is skipped and reported, never crashes a run; polite fetching everywhere (honest User-Agent, throttling, `Retry-After`)
+
+## 🔬 How it works
 
 ```mermaid
 flowchart LR
@@ -49,7 +70,7 @@ flowchart LR
     classDef src fill:#08121b,stroke:#2ee8a2,color:#cbd5e1;
 ```
 
-A single **run** walks the whole pipeline: fetch raw items from the sources, embed them locally, collapse items that describe the same thing into one **idea**, group related ideas into **topics** that persist across runs (so trends become measurable), and score everything.
+A single **run** walks the whole pipeline: fetch raw items, embed them locally, collapse items describing the same thing into one **idea**, group related ideas into **topics** that persist across runs, and score everything.
 
 ### Scoring
 
@@ -62,71 +83,73 @@ gate(x)   = floor + (1 − floor) × x
 
 | Metric | What it measures |
 |--------|------------------|
-| **Heat** | *Speed* of growth, not absolute popularity — **measured**, where history exists, between consecutive engagement observations (stars/day, points/day) in a sliding window; new items fall back to an engagement/age heuristic until a second observation lands. This only works on sources whose engagement is a *live counter*, which is why six of the eight are: HN, HN-Algolia, GitHub, Hugging Face, Stack Exchange and npm (weekly downloads). RSS and arXiv have no growing counter, so for them heat stays heuristic — the per-source `SourceProfile` says which is which, so the scorer never measures an invented delta. |
-| **Credibility** | Trustworthiness of the source and whether there's an identifiable author. |
-| **Feasibility** | How buildable it is for a team of 1–3 people, estimated by the LLM against an explicit rubric. |
-| **Fit** | Adherence to your keywords. A **gate**: off-topic is pulled down however popular it is. |
-| **Opportunity** | Recent **and** not yet saturated. Also a **gate** — and it had to become one. As a 30%-weighted addend it didn't actually stop anything: n8n, with full saturation and `opportunity` at exactly 0.00, still scored 0.56 and sat fourth on the radar, which is precisely what this project claims not to show you. Multiplying instead puts it at 0.12. There's a test that pins this. |
-
-Two gates compress the scale — the top score on a real 1359-idea archive goes from 0.65 to 0.46 — so `scoring.threshold` is calibrated for the new formula and is not comparable to a pre-gate value.
+| 🔥 **Heat** | *Speed* of growth, not absolute popularity — measured between consecutive engagement observations where history exists |
+| 🏛️ **Credibility** | Trustworthiness of the source, identifiable author |
+| 🔧 **Feasibility** | Buildable by a 1–3 person team? Estimated by the LLM against an explicit rubric |
+| 🎯 **Fit** | Adherence to your keywords — a **gate**: off-topic is pulled down however popular |
+| 🚪 **Opportunity** | Recent **and** not saturated — also a **gate** |
 
 Above `scoring.threshold`, an idea is promoted to `proposed`. Every parameter lives in [`backend/config.yaml`](backend/config.yaml).
 
-### Profiles: the themes you declare
+<details>
+<summary><b>Why gates instead of weights?</b> (the n8n lesson)</summary>
+<br/>
 
-`fit` is measured **per profile**, not against one global keyword list. A profile is a named theme in [`backend/config.yaml`](backend/config.yaml) — "Agenti AI", "Domotica e IoT" — with its own keywords, and every source queries all of them.
+As a 30%-weighted addend, `opportunity` didn't actually stop anything: **n8n**, with full saturation and opportunity at exactly **0.00**, still scored 0.56 and sat fourth on the radar — precisely what this project claims not to show you. Multiplying instead puts it at 0.12. There's a test that pins this.
 
-The reason is that a single averaged fit answers the wrong question: an idea about home automation, measured against "prompt engineering" too, gets a mediocre score that can't distinguish *off-topic* from *half-relevant*. Per profile the answer is sharp — central to one, irrelevant to the others — and the winning profile becomes the idea's **macro-theme**, declared by you rather than guessed by a model, with semantic clustering still providing the micro-themes inside it.
+Two gates compress the scale (the top score on a real 1359-idea archive went from 0.65 to 0.46), so `scoring.threshold` is calibrated for the gate formula and is not comparable to a pre-gate value.
 
-An idea no profile claims gets `profile: null`, not "the first one in the list". That distinction mattered: with `max()` over all-zero fits the first profile always won, and on the real archive 1371 ideas out of 1586 came out labelled "ai-agents" without having anything to do with agents.
+Heat only gets *measured* on sources whose engagement is a live counter — HN, HN-Algolia, GitHub, Hugging Face, Stack Exchange, npm. RSS and arXiv have no growing counter, so their heat stays heuristic; the per-source `SourceProfile` says which is which, so the scorer never measures an invented delta.
+</details>
 
-Cost grows with the number of *profiles*, not keywords: GitHub queries one profile at a time with its keywords in OR — legitimate, since they're synonyms of one theme, which is exactly what the old global OR got wrong. Sources that pay one request per keyword take a `max_keywords` cap, and profiles are **interleaved** so a low cap reduces the depth of every theme instead of making the last ones invisible.
+<details>
+<summary><b>Profiles: the themes you declare</b></summary>
+<br/>
 
-Changing profiles or any scoring knob makes every stored score stale, since a normal run only scores ideas that received a new item. `uv run idea-radar rescore` recomputes all of them in seconds — no clustering, no model calls.
+`fit` is measured **per profile**, not against one global keyword list. A profile is a named theme in `config.yaml` with its own keywords, and every source queries all of them.
 
-### Two panels, and one that isn't there
+A single averaged fit answers the wrong question: an idea about home automation, measured against "prompt engineering" too, gets a mediocre score that can't distinguish *off-topic* from *half-relevant*. Per profile the answer is sharp — central to one, irrelevant to the others — and the winning profile becomes the idea's **macro-theme**, declared by you rather than guessed by a model.
 
-The **signal rhythm** is built on `created_at`, not `fetched_at`. That is the whole point: `fetched_at` would draw a vertical stripe every four hours — the rhythm of our own scheduler — instead of the rhythm of the network. Items with no date are excluded and the panel says how many, rather than putting them in an invented cell.
+An idea no profile claims gets `profile: null`, not "the first one in the list". That mattered: with `max()` over all-zero fits the first profile always won, and 1371 ideas out of 1586 came out labelled "ai-agents" without having anything to do with agents.
 
-**Who's talking** searches YouTube once per profile, ordered by view count *within the last week*. Dropping the time window would return the most-watched videos of all time, which is the same mistake that kept the GitHub source stuck on the most-starred repos in history. Videos are context, never signals: they don't enter the pipeline, don't become ideas and aren't scored.
+Cost grows with the number of *profiles*, not keywords: GitHub queries one profile at a time with its keywords in OR; sources that pay one request per keyword take a `max_keywords` cap, and profiles are **interleaved** so a low cap reduces the depth of every theme instead of hiding the last ones.
+</details>
 
-There is no world map, and that is deliberate. Across 1762 archived items **not one field carries a location** — GitHub exposes `language`, not `location`; Stack Exchange, Hugging Face, npm and HN expose nothing. A map would have meant querying GitHub profiles one by one for a self-declared, often-empty `location` field: about 30 usable points out of 1762 signals, presented as "where signals come from". A 2% sample dressed as a fact is worse than no panel.
+<details>
+<summary><b>Drift-proof clustering</b> (how one idea once swallowed 740 items)</summary>
+<br/>
 
-### Aggregation & topics
-
-Local embeddings do two jobs with one mechanism: merge different signals that tell the same story into a single idea (deduplication), and group related ideas into topics. Because topics persist between runs, a theme that grows from one run to the next becomes a **trend** — the core of the Trend view.
-
-A signal joins an existing idea only if it passes **two** tests, both against the idea's actual members, never against their average:
+A signal joins an existing idea only if it passes **two** tests, both against the idea's actual members, never their average:
 
 - **single link** — it must resemble at least *one* member (`clustering.idea_threshold`);
 - **cohesion** — it must resemble *every* member (`clustering.cohesion_floor`).
 
-The first finds duplicates; the second stops a group from growing by chaining (A resembles B, B resembles C, A and C are strangers). Comparing against the idea's centroid instead — a plain average — is what a naive implementation does, and it fails badly: the more members an idea absorbs, the further its centroid drifts toward the middle of the embedding space, where it is *vaguely similar to everything*. Big ideas then become magnets that grow on their own. In this repo's own archive one idea had swallowed 740 unrelated items that way, and the fix required both a new criterion and [`rebuild-ideas`](#cli) to repair the history.
+The first finds duplicates; the second stops growth by chaining (A resembles B, B resembles C, A and C are strangers). Comparing against the centroid — what a naive implementation does — fails badly: the more members an idea absorbs, the further its centroid drifts toward the middle of the embedding space, where it is *vaguely similar to everything*. In this repo's own archive one idea had swallowed **740 unrelated items** that way; the fix required both the new criterion and `rebuild-ideas` to repair the history.
 
-Thresholds are calibrated against a ground truth of items that appeared on two sources with the same title, not picked by eye — see the comments in [`backend/config.yaml`](backend/config.yaml) for the numbers and the reasoning.
+Thresholds are calibrated against a ground truth of items that appeared on two sources with the same title — see the comments in `backend/config.yaml`. Topics the model names identically are merged, keeping the older one and its history: one label ("agenti AI per il self-hosting") had been handed out **twelve** times.
+</details>
 
-Topics the model names identically are merged, keeping the older one and its history. The name is the model's own judgement of what a group *is*: if it repeats it, they are the same theme, and keeping them apart is a distinction nobody can explain. On this archive it collapsed 18 topics — one label, "agenti AI per il self-hosting", had been handed out **twelve** times, which is also a useful hint that `topic_threshold` is on the strict side.
+## 🔭 The four views
 
----
+The interface is a single-page **"radar room"**: a dark, glass-panelled console with a phosphor-green accent, live sweep animation, and [Space Grotesk](https://fonts.google.com/specimen/Space+Grotesk) throughout.
 
-## The four views
+| | |
+|:---:|:---:|
+| **Radar** — the control room: polar scope, ranked list, video panel, signal rhythm | **Topic** — macro-themes you declared, micro-themes the embeddings found |
+| <img src="docs/radar.png" alt="Radar view" width="420"/> | <img src="docs/topics.png" alt="Topic view" width="420"/> |
+| **Trend** — what's moving between runs, with drill-down to each theme | **Monitor** — live pipeline progress and full run history, per-source |
+| <img src="docs/trends.png" alt="Trend view" width="420"/> | <img src="docs/monitor.png" alt="Monitor view" width="420"/> |
 
-The interface is a single-page "radar room": a dark, glass-panelled console with a phosphor-green accent, live sweep animation, and [Space Grotesk](https://fonts.google.com/specimen/Space+Grotesk) throughout. Data and models stay entirely local.
+- 🎛️ **Radar** — every idea is a blip; distance from the centre is `1 − composite`, so the best opportunities sit near the middle. Below, the same ideas as a ranked, searchable list (search hits the whole archive, server-side). Pin 📌, dismiss 🗑️ and annotate 📝 — all deep-linkable (`?idea=<id>`).
+- 🗂️ **Topic** — two levels: profiles (macro) and semantic clusters (micro). Sortable, and singleton themes are hidden by default: real, but noise to scroll.
+- 📈 **Trend** — hover-tooltip area chart per topic, biggest mover highlighted. Needs two runs; with one, deltas are zero by construction.
+- 🩺 **Monitor** — ingestion funnel, per-source counts, and a run history where each run expands into its per-source outcome: the place to notice a source that quietly stopped bringing anything.
 
-- **Radar** — a control room. The polar scope in the middle, every idea a blip, filterable by **theme**; on the left **who's talking right now** about your themes (YouTube search per profile — one player, top of the panel, autoplaying *muted*; click it to hear it, click any thumbnail to promote it with sound); on the right the **signal rhythm**, a heatmap of when the things the radar intercepts were *born* — days as columns, the 24 hours as rows, because in a tall narrow panel that's the only orientation with cells big enough to read. Distance from the centre is `1 − composite`, so the best opportunities sit *on your heading*, near the middle; a rotating sweep makes each blip flash as it passes. Below the scope, the same ideas as a ranked, searchable list. Each idea can be **pinned** (kept on top and shielded from auto-archiving), **dismissed** (hidden until you ask for it back), and **annotated** with a private note — actions that persist across runs and are reachable by deep link (`?idea=<id>`).
-- **Topic** — two levels: ideas grouped under the **macro-theme** they belong to (the profiles you declared) and, inside it, the micro-themes the embeddings found. Each topic expands into its members (fetched per topic, so the accordion isn't limited by the paginated idea list). Sortable by score, size or recency, and by default it hides themes holding a single idea — with calibrated thresholds those are the majority, they're real, but scrolling hundreds of them is noise.
-- **Trend** — what's moving between runs, with a hover-tooltip area chart per topic and the biggest mover highlighted; every entry links through to its theme. (Needs at least two runs; with one, deltas are zero by construction.)
-- **Monitor** — live pipeline progress: ingestion funnel, per-source counts, active sources, and a full run history where each run expands to its per-source outcome — the place to notice a source that quietly stopped bringing anything. While a run is in progress the whole view polls every 2s.
+<details>
+<summary><b>The two side panels — and the panel that isn't there</b></summary>
+<br/>
 
 <div align="center">
-
-| Topic | Trend |
-|:---:|:---:|
-| <img src="docs/topics.png" alt="Topic view" width="420"/> | <img src="docs/trends.png" alt="Trend view" width="420"/> |
-| **Monitor** | **Idea detail** |
-| <img src="docs/monitor.png" alt="Monitor view" width="420"/> | <img src="docs/detail.png" alt="Idea detail drawer" width="420"/> |
-
-The two side panels of the control room, up close — the video shots show the player stopped on purpose, so the image doesn't depend on what YouTube decides to render:
 
 | Who's talking | Signal rhythm |
 |:---:|:---:|
@@ -134,49 +157,26 @@ The two side panels of the control room, up close — the video shots show the p
 
 </div>
 
----
+**Signal rhythm** is built on `created_at`, not `fetched_at` — `fetched_at` would draw a vertical stripe every four hours: the rhythm of our own scheduler, not of the network. Items with no date are excluded and the panel says how many.
 
-## Features
+**Who's talking** searches YouTube once per profile, ordered by view count *within the last week* — dropping the window would return the most-watched videos of all time. Videos are context, never signals: they don't enter the pipeline.
 
-- **Opportunity-first ranking** that rewards momentum over accumulated popularity.
-- **Semantic deduplication** — the same launch on HN, GitHub, and a blog collapses into one idea, with a drift-proof criterion (single link + cohesion, always item-to-item) so a large idea can never turn into a catch-all.
-- **Config-driven sources** — each collector declares its own scoring *profile* (velocity/saturation caps, credibility, whether its engagement is a live counter) next to its code and registers itself on import. Adding a source is one file plus one line of `config.yaml` — no edits to the scorer.
-- **User actions on ideas** — pin, dismiss, mark-as-seen, and free-text notes, all persisted and orthogonal to the pipeline's own status (a run never overwrites your decisions; a pinned idea is never auto-archived).
-- **Local-only LLM** for summaries, "why it matters" notes, and difficulty estimates — nothing is sent to a paid API.
-- **Trends across runs** — topics are tracked over time so you can see what's rising.
-- **Resilient collection** — a rate-limited or broken feed is skipped, never crashes a run, and its error is written to the run record straight away, so a source that fails *last* still shows up in the Monitor instead of disappearing. Fetching is polite everywhere: honest User-Agent, redirects followed, throttling, `Retry-After`.
-- **Cost-aware LLM use** — insights are cached per idea (repeat runs only pay for new content), clearly off-topic items skip the model entirely (fit-gate), and topic names are only regenerated for topics that are both big enough to be worth summarising and actually changed since the last run.
-- **Hands-free trend accumulation** — a launchd agent runs the pipeline every few hours while the Mac is awake, with catch-up after sleep/reboot, a cross-process lock, and an Ollama preflight so unattended runs never degrade the data.
+**There is no world map**, deliberately. Across 1762 archived items **not one field carries a location**. A map would have meant ~30 usable points out of 1762 signals presented as "where signals come from". A 2% sample dressed as a fact is worse than no panel.
+</details>
 
----
+## 🚀 Quick start
 
-## Tech stack
-
-| Layer | Stack |
-|-------|-------|
-| Backend | Python 3.11+, [uv](https://docs.astral.sh/uv/), FastAPI + Uvicorn, SQLModel (SQLite), Typer CLI, pydantic-settings, pytest |
-| Frontend | Vite + React 19 + TypeScript, Tailwind CSS v4, React Router, TanStack Query, Vitest + Testing Library, Space Grotesk |
-| Intelligence | Ollama — `qwen2.5:7b` (insights), `nomic-embed-text` (embeddings) |
-| Sources | Hacker News (Firebase + Algolia backfill), GitHub (Search API, age-banded), Hugging Face Hub, Stack Exchange, npm registry, arXiv (4 categories), Product Hunt (GraphQL v2), 20 RSS/Atom feeds — 70 HTTP requests per run, all free, no key needed beyond a GitHub token |
-
----
-
-## Getting started
-
-### Prerequisites
-
-- [uv](https://docs.astral.sh/uv/) (manages Python 3.11+ automatically)
-- Node.js 20+
-- [Ollama](https://ollama.com/) running, with two models pulled:
+**Prerequisites:** [uv](https://docs.astral.sh/uv/) · Node.js 20+ · [Ollama](https://ollama.com/) with two models:
 
 ```bash
 ollama pull qwen2.5:7b        # insights: summary, why_text, difficulty
 ollama pull nomic-embed-text  # embeddings: clustering and topics
 ```
 
-> Without Ollama the radar still runs in degraded mode: heuristic descriptions and no clustering (each signal stays its own idea).
+> [!TIP]
+> Without Ollama the radar still runs in degraded mode: heuristic descriptions and no clustering.
 
-### Backend
+**Backend** — API on `http://localhost:8000`:
 
 ```bash
 cd backend
@@ -184,9 +184,7 @@ cp .env.example .env          # first time only — add your free GITHUB_TOKEN
 uv run uvicorn app.api:app --reload
 ```
 
-API on `http://localhost:8000` — health check: `curl http://localhost:8000/health`. If port 8000 is taken, use `--port 8001` and start the frontend with `BACKEND_URL=http://localhost:8001 npm run dev`.
-
-### Frontend
+**Frontend** — app on `http://localhost:5173` (Vite proxies to the backend, no CORS in dev):
 
 ```bash
 cd frontend
@@ -194,24 +192,33 @@ npm install                   # first time only
 npm run dev
 ```
 
-App on `http://localhost:5173` (Vite proxies to the backend, no CORS in dev).
-
-### CLI
+**First run:**
 
 ```bash
 cd backend
-uv run idea-radar run         # collect + embed + cluster + score
-uv run idea-radar ideas       # top ideas (--proposed for above-threshold only)
-uv run idea-radar topics      # ideas grouped by theme
-uv run idea-radar trends      # what's rising and falling between runs
-uv run idea-radar stats       # ingestion funnel
-uv run idea-radar rescore     # recompute all scores after a config change
-uv run pytest                 # tests (backend)
+uv run idea-radar run
 ```
 
-The frontend has its own suite now: `cd frontend && npm test`. It exists because three defects reached the user before it did — a pin that didn't react, a note discarded in silence, and a read-only detail drawer — all of which a component test catches in a second.
+## 🧰 CLI
 
-`digest` turns the radar from something you have to remember to open into something that reports to you:
+| Command | What it does |
+|---------|--------------|
+| `uv run idea-radar run` | collect → embed → cluster → score |
+| `uv run idea-radar ideas` | top ideas (`--proposed` for above-threshold only) |
+| `uv run idea-radar topics` | ideas grouped by theme |
+| `uv run idea-radar trends` | what's rising and falling between runs |
+| `uv run idea-radar stats` | ingestion funnel |
+| `uv run idea-radar digest` | markdown briefing of what crossed the threshold |
+| `uv run idea-radar export` | CSV export (same filters as the API) |
+| `uv run idea-radar rescore` | recompute all scores after a config change — seconds, no model calls |
+| `uv run idea-radar heal` | re-embed degraded items, re-merge singleton ideas |
+| `uv run idea-radar reinsight` | regenerate LLM summaries, above-threshold first |
+| `uv run idea-radar rebuild-ideas` | re-aggregate the whole archive under new thresholds |
+| `uv run idea-radar schedule install` | register the launchd agent (macOS) |
+
+<details>
+<summary><b>digest</b> — the radar reports to you</summary>
+<br/>
 
 ```bash
 uv run idea-radar digest              # writes backend/data/digests/<timestamp>.md
@@ -219,16 +226,19 @@ uv run idea-radar digest --stdout     # print instead of writing
 uv run idea-radar digest --since 2026-07-20
 ```
 
-"New" means *newly above threshold*, not newly seen: an idea can sit in the archive for weeks and cross the line only now, and that is precisely the news. The window starts at the last digest, and the register is the filenames themselves — delete a digest and it regenerates. Add it to a `cron`/launchd entry after the run and you have a briefing.
+"New" means *newly above threshold*, not newly seen: an idea can sit in the archive for weeks and cross the line only now — and that is precisely the news. The window starts at the last digest, and the register is the filenames themselves: delete a digest and it regenerates.
+</details>
 
-`heal` repairs what the incremental pipeline can't revisit on its own — items that arrived while Ollama was down (no vector, so no way to aggregate them, ever) and single-item ideas that would have a home today, since single-link depends on arrival order:
+<details>
+<summary><b>heal & reinsight</b> — repairing what the incremental pipeline can't revisit</summary>
+<br/>
 
 ```bash
 uv run idea-radar heal                     # re-embed what's missing, re-check singletons
 uv run idea-radar heal --skip-embeddings   # no Ollama call: only re-check singletons
 ```
 
-`reinsight` regenerates summaries. The LLM insight lives on the *idea*, not the item, so when an idea was a catch-all its summary described only the best of its members — and `rebuild-ideas` spread that text onto every idea born from it, which is how months of model work were preserved but a minority of ideas ended up describing something else.
+`heal` fixes items that arrived while Ollama was down (no vector → no way to aggregate, ever) and single-item ideas that would have a home today. It never dissolves an idea with more than one item, and between two singletons the older one survives — a repaired item can't take out the idea that was waiting for it.
 
 ```bash
 uv run idea-radar reinsight --dry-run   # which ideas, and how long it will take
@@ -236,21 +246,25 @@ uv run idea-radar reinsight             # the above-threshold ones (minutes)
 uv run idea-radar reinsight --all       # every live idea (hours)
 ```
 
-There is deliberately **no** "find the wrong ones" filter, because two attempts at building one both failed on real data. Counting words shared with the idea's own items measures the *language*, not the topic — insights are in Italian, items in English, so correct summaries scored zero. Comparing embeddings can't separate "same domain, different artifact", which is exactly this case: the catch-all was full of AI/dev-tools items and so are the ideas born from it — on this archive it flagged 19 ideas, mostly with perfectly good summaries, and missed the two that were visibly broken. So the command doesn't guess: it regenerates by priority, above-threshold ideas first, since those are the ones that reach the digest and the top of the radar.
+There is deliberately **no** "find the wrong summaries" filter: two attempts at building one both failed on real data (word overlap measured the *language* — insights in Italian, items in English — and embeddings can't separate "same domain, different artifact"). So the command doesn't guess: it regenerates by priority.
+</details>
 
-`heal` never dissolves an idea with more than one item, and between two singletons the older one survives — so a repaired item can't take out the idea that was waiting for it, along with its label and its paid-for summary. If Ollama isn't ready the command says so and falls back to the singleton pass instead of failing.
-
-After changing a clustering threshold, apply it to the archive you already have instead of waiting for it to re-form run by run:
+<details>
+<summary><b>rebuild-ideas & recluster</b> — apply new thresholds to the archive you already have</summary>
+<br/>
 
 ```bash
-uv run idea-radar rebuild-ideas --dry-run   # what the new thresholds would produce
-uv run idea-radar rebuild-ideas             # rebuild ideas, topics and scores
+uv run idea-radar rebuild-ideas --dry-run            # what the new thresholds would produce
+uv run idea-radar rebuild-ideas                      # rebuild ideas, topics and scores
 uv run idea-radar recluster --sweep 0.74,0.78,0.82   # then re-tune topic_threshold
 ```
 
-The rebuild re-aggregates the stored items with the current thresholds. No fetching, no embedding, no new LLM calls: items and their engagement history are untouched, and **pins, dismissals, notes and the insights already paid for are carried over** — user state follows the item that gave the idea its name. Ideas, topics, scores and topic stats are rebuilt; scores are rewritten onto the last completed run so the views have numbers immediately. `--dry-run` prints the outcome without writing, and is exact rather than an estimate: preview and rebuild share the same grouping function.
+No fetching, no embedding, no new LLM calls: items and engagement history are untouched, and **pins, dismissals, notes and the insights already paid for are carried over**. `--dry-run` is exact, not an estimate: preview and rebuild share the same grouping function.
+</details>
 
-### Scheduled runs (macOS)
+<details>
+<summary><b>Scheduled runs</b> (macOS)</summary>
+<br/>
 
 ```bash
 cd backend
@@ -259,109 +273,115 @@ uv run idea-radar schedule status     # loaded? last exit code? recent runs
 uv run idea-radar schedule uninstall  # remove it
 ```
 
-The agent is deliberately dumb: it fires `idea-radar run --scheduled` at login and every 30 minutes, and **all the policy lives in the CLI**, where it is tested. A real run only starts when the last completed run is older than `scheduling.min_interval_hours` (default 4); every other tick is a ~1s skip, logged to `backend/data/logs/scheduled.log`. On a laptop this behaves like anacron: ticks missed while asleep are coalesced on wake, `RunAtLoad` covers reboots. Exit codes are meaningful — 0 ok/skip, 1 failed run, 3 Ollama not ready — and `schedule status` translates them.
+The agent is deliberately dumb: it fires `idea-radar run --scheduled` at login and every 30 minutes, and **all the policy lives in the CLI**, where it is tested. A real run only starts when the last completed one is older than `scheduling.min_interval_hours` (default 4); every other tick is a ~1s skip. On a laptop this behaves like anacron: ticks missed while asleep are coalesced on wake.
 
-Unattended runs are stricter than manual ones, on purpose: if Ollama is down or a model is missing the run is **skipped** and retried at the next tick (rather than running degraded), and a cross-process file lock guarantees a scheduled run, a manual run, and the API never write to SQLite at the same time.
+Unattended runs are stricter than manual ones, on purpose: if Ollama is down or a model is missing the run is **skipped** and retried at the next tick rather than running degraded, and a cross-process file lock guarantees a scheduled run, a manual run and the API never write to SQLite at the same time. Exit codes are meaningful — 0 ok/skip, 1 failed, 3 Ollama not ready — and `schedule status` translates them.
+</details>
 
----
+## 🔧 Configuration
 
-## Configuration
-
-Runtime behaviour lives in [`backend/config.yaml`](backend/config.yaml) — sources, keywords, scoring weights and thresholds, clustering thresholds. Secrets live in `backend/.env` (never committed):
+Runtime behaviour lives in [`backend/config.yaml`](backend/config.yaml) — sources, keywords, scoring weights, clustering thresholds. Secrets live in `backend/.env` (never committed):
 
 | Variable | Purpose |
 |----------|---------|
 | `GITHUB_TOKEN` | Free GitHub token for the Search API |
-| `PRODUCTHUNT_TOKEN` | Free Product Hunt developer token (only needed if the `producthunt` source is enabled) |
+| `PRODUCTHUNT_TOKEN` | Free Product Hunt developer token (only if the `producthunt` source is enabled) |
 | `OLLAMA_HOST` | Ollama endpoint (default `http://localhost:11434`) |
 | `OLLAMA_MODEL` | Default generative model (default `qwen2.5:7b`) |
-| `OLLAMA_INSIGHT_MODEL` | Optional smaller model for per-item insights only — the run's bottleneck (~7s/item on the 7B). Moves, business angles and topic labels stay on `OLLAMA_MODEL`. Empty = use `OLLAMA_MODEL` |
+| `OLLAMA_INSIGHT_MODEL` | Optional smaller model for per-item insights only — the run's bottleneck (~7s/item on the 7B). Empty = use `OLLAMA_MODEL` |
 | `EMBEDDING_MODEL` | Embedding model (default `nomic-embed-text`) |
-| `YOUTUBE_API_KEY` | Free Google key for the video panel only — nothing in the pipeline uses it, and without it the panel switches itself off with an explanation instead of looking broken |
+| `YOUTUBE_API_KEY` | Free Google key, video panel only — without it the panel switches itself off with an explanation |
 
-Embeddings are asked for in batches: `/api/embed` takes a list, so a run with 280 new items makes 9 requests instead of 280 (`throughput.embed_batch_size`, default 32). The model still works through them one at a time — what disappears is round-trip latency and HTTP overhead, not compute. On an Ollama too old to expose that route the embedder falls back to the legacy one, one request per text, and says so in the log.
+**Five knobs worth knowing:** `scoring.threshold` (how selective the radar is), `scoring.opportunity_floor` (how much a saturated market keeps: 0 erases it, 1 disables the gate), `clustering.idea_threshold` (how aggressively duplicates merge), `clustering.cohesion_floor` (how homogeneous an idea must stay), `scoring.heat_window_days` (the sliding window heat is measured over). The two clustering thresholds are tied to the embedding model: changing `EMBEDDING_MODEL` means re-calibrating them, then `rebuild-ideas`.
 
-Five knobs worth knowing: `scoring.threshold` controls how selective the radar is (and is tied to the two-gate formula — don't carry an old value over), `scoring.opportunity_floor` how much a saturated market keeps (0 erases it, 1 disables the gate), `clustering.idea_threshold` controls how aggressively duplicate signals merge (higher = only near-identical items collapse), `clustering.cohesion_floor` how homogeneous an idea must stay to keep accepting members (0 disables the check), and `scoring.heat_window_days` sets the sliding window the delta-based heat measures velocity over. The two clustering thresholds are tied to the embedding model: changing `EMBEDDING_MODEL` or the task prefix means re-calibrating them, then `rebuild-ideas`.
+<details>
+<summary><b>The GitHub collector</b> — why "sort by stars" is a trap</summary>
+<br/>
 
-The GitHub collector deserves a note, because getting it wrong is silent. There is no official "trending" endpoint, so it is built out of constraints on the Search API: **age bands** on the creation date, sorted by stars, one query per keyword per band.
+There is no official "trending" endpoint, so the collector is built out of constraints on the Search API: **age bands** on the creation date, sorted by stars, one query per keyword per band.
 
-Drop the date filter and "sorted by stars" means *the most famous repos on earth* — closed markets by definition. That was the original query, and over 51 runs it collected the same 31 repos (freeCodeCamp at 452k stars, tensorflow at 196k), 22 created before 2024: the exact opposite of the case in the opening paragraph of this README.
+Drop the date filter and "sorted by stars" means *the most famous repos on earth* — closed markets by definition. That was the original query, and over 51 runs it collected the same 31 repos (freeCodeCamp at 452k stars, tensorflow at 196k), 22 of them created before 2024: the exact opposite of what this project is for.
 
-A single band isn't enough either: the same query returns the same repos every run, so after the first sweep the source stops discovering anything. `created_windows: [90, 270, 540]` splits the search into 0-90, 90-270 and 270-540 days, and the quota is divided **between bands** rather than awarded by global star count — stars accumulate with time, so ranking everything together would always let the oldest band win, which is the very bias being removed. The youngest band renews itself as new projects are born; that's what keeps the source alive run after run.
+A single band isn't enough either: the same query returns the same repos every run, so after the first sweep the source stops discovering. `created_windows: [90, 270, 540]` splits the search into three bands and divides the quota **between bands** rather than by global star count — stars accumulate with time, so ranking everything together would always let the oldest band win. The youngest band renews itself as new projects are born; that's what keeps the source alive.
+</details>
 
-One source that is worth its own line: **Stack Exchange measures demand, not supply.** Every other collector looks at what is being *built* — repos, models, papers, launches. This one looks at what is *missing*: a question that collects votes and has no accepted answer is a problem people have and nobody has solved well. It only keeps unanswered questions (a solved one is documentation, not an opening) and sorts by votes rather than activity, because votes mean "I have this too" while activity only means someone commented. Its profile deliberately turns off `maturity_in_saturation`: on GitHub, popular *and* old means a closed market, but an old question that still collects votes is a problem that has *resisted*.
+<details>
+<summary><b>Stack Exchange</b> — the demand axis</summary>
+<br/>
 
-Each source is one entry under `sources` with a `type` (`hn`, `hn_algolia`, `github`, `huggingface`, `stackexchange`, `npm`, `arxiv`, `producthunt`, `rss`) and its own options (`feeds` for RSS, `categories` for arXiv, `created_windows`/`min_stars` for GitHub, `hf_kinds` for Hugging Face, `tags`/`site` for Stack Exchange, `max_age_days` for Stack Exchange and npm, `lookback_hours`/`min_points` for the Algolia backfill). The `producthunt` source ships **disabled**: enable it after setting `PRODUCTHUNT_TOKEN`. All the per-source scoring parameters live in each collector's `SourceProfile` (`backend/app/sources/<source>.py`), not in the scorer.
+Every other collector looks at what is being *built* — repos, models, papers, launches. This one looks at what is *missing*: a question that collects votes and has no accepted answer is a problem people have and nobody has solved well. It only keeps unanswered questions (a solved one is documentation, not an opening) and sorts by votes rather than activity, because votes mean "I have this too". Its profile deliberately turns off `maturity_in_saturation`: on GitHub, popular *and* old means a closed market, but an old question that still collects votes is a problem that has *resisted*.
+</details>
 
----
+<details>
+<summary><b>Sources & batching details</b></summary>
+<br/>
 
-## Project structure
+Each source is one entry under `sources` with a `type` (`hn`, `hn_algolia`, `github`, `huggingface`, `stackexchange`, `npm`, `arxiv`, `producthunt`, `rss`) and its own options (`feeds` for RSS, `categories` for arXiv, `created_windows`/`min_stars` for GitHub, `hf_kinds` for Hugging Face, `tags`/`site` for Stack Exchange, `lookback_hours`/`min_points` for the Algolia backfill). The `producthunt` source ships **disabled**: enable it after setting `PRODUCTHUNT_TOKEN`. All per-source scoring parameters live in each collector's `SourceProfile`, next to its code — adding a source is one file plus one line of config, no edits to the scorer. ~70 HTTP requests per run, all free.
+
+Embeddings are asked for in batches (`/api/embed` takes a list): a run with 280 new items makes 9 requests instead of 280 (`throughput.embed_batch_size`, default 32). On an Ollama too old for that route the embedder falls back to one request per text, and says so in the log.
+</details>
+
+## 📁 Project structure
 
 ```
 backend/
   app/
-    api.py               # FastAPI endpoints (incl. PATCH /ideas/{id} for user actions)
+    api.py               # FastAPI endpoints (search, pagination, PATCH /ideas/{id})
     cli.py               # Typer CLI (entry point: `uv run idea-radar`)
     pipeline.py          # run orchestration
-    sources/             # collectors: hackernews, hn-algolia, github, huggingface,
+    sources/             # collectors: hn, hn_algolia, github, huggingface,
                          #   stackexchange, npm, arxiv, producthunt, rss
-      base.py            #   self-registering type registry (register_source / load_collectors)
-      profiles.py        #   per-source scoring profile (velocity/saturation caps, credibility…)
     embeddings.py        # local embeddings + similarity
     clustering.py        # items → ideas, ideas → topics
     scoring.py           # metrics and composite
     llm.py               # insights via Ollama
-    digest.py            # `digest`: markdown report of what crossed the threshold
-    healing.py           # `heal`: re-embed degraded items, re-merge singletons
+    digest.py            # markdown briefing
+    healing.py           # heal / reinsight
     scheduling.py        # unattended-run policy: staleness gate + Ollama preflight
-    schedule_launchd.py  # launchd agent: install / uninstall / status
-    runlock.py           # cross-process run lock (CLI, API, scheduler)
-    queries.py           # shared reads for API/CLI
-    models.py            # SQLModel
   config.yaml            # sources, keywords, scoring, clustering, scheduling
-  tests/
+  tests/                 # 329 tests
 frontend/
   src/
-    App.tsx              # shell: header, URL-routed nav, deep-linked detail drawer
-    hooks/               # useRadarData: TanStack Query hooks + run-watching / mutations
-    api.ts               # typed client
-    types.ts             # shared API types
-    index.css            # "radar room" design system (Tailwind v4 theme, glass, motion)
-    components/
-      RadarScope.tsx     # the polar radar — signature view
-      IdeaCard.tsx       # ranked idea card
-      IdeaDetail.tsx     # slide-over drawer with KPIs, score history, signals
-      ui.tsx             # primitives: Panel, Badge, ScoreRing, MetricBar, AreaSpark…
-      motion.tsx         # tiny motion helpers (count-up, stagger) — no libraries
+    App.tsx              # shell: URL-routed nav, deep-linked detail drawer
+    hooks/               # TanStack Query data layer, focus trap, debounce
+    components/          # RadarScope, IdeaCard, IdeaDetail, ui primitives
     views/               # Radar, Topic, Trend, Monitor
+    index.css            # "radar room" design system (Tailwind v4)
 ```
 
----
+## 🧪 Testing & CI
 
-## Privacy & data
+```bash
+cd backend && uv run pytest        # 329 tests
+cd backend && uv run ruff check .  # lint
+cd frontend && npm test            # 83 tests (Vitest + Testing Library)
+cd frontend && npm run lint        # oxlint (correctness + jsx-a11y)
+cd frontend && npm run typecheck   # tsc
+```
 
-This repository contains **code only**. The database with collected data stays **local** and is never committed: `.env`, `*.db`, and `data/` are excluded via `.gitignore`. Only `.env.example` (no secrets) is versioned.
+All of it runs on every push via [GitHub Actions](.github/workflows/ci.yml). The frontend suite exists because three defects reached the user before it did — a pin that didn't react, a note discarded in silence, and a read-only detail drawer — all of which a component test catches in a second.
 
----
+## 🧭 Roadmap
 
-## Roadmap
+- [ ] Clustering at scale — `sqlite-vec` or numpy as a real ANN index. Measured 30 July: not worth it yet (~1–2% of a run); see `scripts/bench_clustering.py`
+- [ ] npm download-stats enricher (PyPI is done) and feeding download velocity into `ItemStat`
+- [ ] Digest reachable from the API/UI and generated by the scheduled run, not only by hand
 
-Recently shipped: semantic deduplication end-to-end · per-idea insight cache · fit-gate · `recluster` command with threshold sweep · scheduled runs (launchd agent + CLI gate, SQLite in WAL) · engagement-history snapshots per run · idea lifecycle (auto-archive after 14 idle days, auto-revive on new signal) · HN Algolia backfill to heal gaps · immersive "radar room" frontend redesign · **delta-based heat** — velocity measured between consecutive `item_stats` observations, window-scoped, on live-counter sources (GitHub, HN) · **config-driven sources** — self-registering collectors, per-source scoring profiles · **arXiv and Product Hunt connectors** behind the same interface · **user actions** — pin / dismiss / mark-seen / notes, persisted across runs · **URL routing + TanStack Query** frontend data layer · SQL-side filtering, ordering and pagination on `/ideas`.
+<details>
+<summary><b>Shipped</b></summary>
+<br/>
 
-Also shipped: **drift-proof clustering** — merges decided member-by-member (single link + cohesion) instead of on the centroid, with thresholds calibrated against a ground truth of cross-source duplicates · **`rebuild-ideas`** — re-aggregates the stored archive under new thresholds, preserving items, engagement history, user actions and paid-for insights · **honest trends** — a topic's `avg_composite` is measured on each idea's latest known score, so a run with nothing new draws a flat line instead of a fake crash to zero · **arXiv actually collecting** — it was requesting `http`, getting a redirect the Atom parser then choked on, and failing invisibly because a source that fails last never reached the run record · **a centroid index reused for a whole run** instead of re-reading every idea for every item: 66s → 4s on the clustering step of a 130-item run, measured on a 1300-idea archive.
+Semantic deduplication end-to-end · per-idea insight cache · fit-gate · opportunity as a gate, not an addend · delta-based heat on live-counter sources · config-driven sources with self-registering collectors · profiles (per-theme relevance) · 8 collectors including arXiv, Product Hunt, Hugging Face, Stack Exchange (the demand axis) and npm · a GitHub collector that actually looks for *rising* repos · drift-proof clustering (single link + cohesion) with `rebuild-ideas` to repair history · honest trends (a run with nothing new draws a flat line, not a fake crash) · user actions (pin / dismiss / notes) persisted across runs · URL routing + TanStack Query + deep-linkable drawer · server-side search & pagination with `X-Total-Count` · scheduled runs (launchd + tested CLI policy, SQLite in WAL) · HN Algolia backfill · `heal`, `reinsight`, `digest`, CSV export · configurable insight model (`OLLAMA_INSIGHT_MODEL`) · run history with per-source outcomes in the Monitor · a11y (focus trap, roving tabindex on the radar blips) · CI on every push.
+</details>
 
-And: **a control-room Radar** — video context on one side, signal rhythm on the other · **profiles** — per-theme relevance, so the macro/micro hierarchy is declared instead of invented · **three new collectors** — Hugging Face (likes and downloads, so measured heat), Stack Exchange (the demand axis, which was missing entirely) and npm (new packages before they reach HN, ranked on weekly downloads because the registry's own popularity scores come back as 1.0 for everything) · **a GitHub collector that actually looks for rising repos** — plus 20 feeds and 4 arXiv categories, roughly doubling the intake · **opportunity as a gate, not an addend** — the scoring change that finally makes the opening claim of this README true · **`heal`** for the sediment the incremental pipeline can't revisit · **`digest`** as a markdown briefing · **run history with per-source outcomes** in the Monitor · **Topic view that scales** to hundreds of themes · **Trend → Topic drill-down** · HTML entities stripped at collection (Hacker News serves escaped markup, and it was reaching the summaries).
+## 🔒 Privacy & data
 
-Latest: **configurable insight model** (`OLLAMA_INSIGHT_MODEL`) — a smaller model for the per-item insight calls only, the run's real bottleneck, with the scheduler preflight checking it too · **server-side search** — `GET /ideas?q=` matches label, summary and topic name in SQL across the whole archive, with `X-Total-Count` so the UI can say "N of T" honestly · **paginated Radar list** — status filter and search hit the server, "load more" walks the archive instead of pretending the first page is everything · **CI** — pytest + ruff on the backend, vitest + oxlint + tsc on the frontend, on every push.
+This repository contains **code only**. The database with collected data stays **local** and is never committed: `.env`, `*.db` and `data/` are excluded via `.gitignore`. Only `.env.example` (no secrets) is versioned.
 
-Next:
-
-- [ ] Clustering at scale — candidate lookup is an in-memory scan of unit centroids, so it is still linear per item and quadratic per run; at ~1300 ideas that's a few seconds, at ten times that it won't be. Next: `sqlite-vec` or numpy as a real ANN index (batched embeddings are done). Measured 30 July: not worth it yet — see `scripts/bench_clustering.py`.
-- [ ] npm download-stats enricher (PyPI is done) and feeding download velocity into `ItemStat`.
-- [ ] Digest reachable from the API/UI and generated by the scheduled run, not only by hand.
-
----
-
-## License
+## 📄 License
 
 Released under the MIT License — see [LICENSE](LICENSE).
+
+<div align="center">
+<sub>Built to spot openings, not echoes — with free APIs and a local LLM.</sub>
+</div>
