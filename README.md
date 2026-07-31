@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="frontend/public/favicon.svg" alt="Idea Radar logo" width="72"/>
+<img src="docs/logo.svg" alt="Idea Radar logo" width="112"/>
 
 # Idea Radar
 
