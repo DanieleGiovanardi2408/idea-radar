@@ -14,7 +14,8 @@ import type {
 /** Base URL dell'API: vuota su web (il proxy Vite rende tutto same-origin),
  *  impostata alla build dell'app desktop, dove il backend gira su una porta
  *  locale propria (es. VITE_API_BASE=http://127.0.0.1:8765). */
-const BASE: string = import.meta.env.VITE_API_BASE ?? ''
+export const API_BASE: string = import.meta.env.VITE_API_BASE ?? ''
+const BASE = API_BASE
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(BASE + path)

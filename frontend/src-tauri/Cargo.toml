@@ -1,6 +1,6 @@
 [package]
 name = "idea-radar-desktop"
-version = "0.1.3"
+version = "0.1.4"
 description = "Idea Radar — rising tech opportunities before they saturate"
 authors = ["Daniele Giovanardi"]
 edition = "2021"

@@ -1,13 +1,23 @@
 """API FastAPI di Idea Radar."""
 
 import logging
+import re
 import threading
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Literal
+from urllib.parse import urlencode
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Response
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlmodel import Session, select
@@ -270,6 +280,40 @@ def _idea_out(idea: Idea, score, model=IdeaOut):
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+_YT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,20}$")
+_YT_ALLOWED_PARAMS = {"autoplay", "mute", "rel", "playsinline", "modestbranding"}
+
+
+@app.get("/yt/{video_id}", include_in_schema=False)
+def youtube_embed_bridge(video_id: str, request: Request) -> Response:
+    """Pagina-ponte per l'embed YouTube nell'app desktop.
+
+    Su macOS la webview Tauri serve la UI da ``tauri://localhost``: WebKit non
+    manda il Referer per origini non-http e YouTube risponde "Error 153".
+    Incorniciare il player in una pagina servita da QUI (http://127.0.0.1)
+    dà a YouTube un genitore http verificabile. Il browser web non ne ha
+    bisogno e continua a incorporare direttamente.
+    """
+    if not _YT_ID_RE.match(video_id):
+        raise HTTPException(status_code=404, detail="Video non valido")
+    params = urlencode(
+        {k: v for k, v in request.query_params.items() if k in _YT_ALLOWED_PARAMS}
+    )
+    src = f"https://www.youtube-nocookie.com/embed/{video_id}" + (
+        f"?{params}" if params else ""
+    )
+    html = (
+        "<!doctype html><html><head><meta charset='utf-8'>"
+        "<style>html,body{margin:0;height:100%;background:#000}"
+        "iframe{display:block;width:100%;height:100%;border:0}</style>"
+        f"</head><body><iframe src=\"{src}\" "
+        'allow="accelerometer; autoplay; encrypted-media; picture-in-picture" '
+        'referrerpolicy="strict-origin-when-cross-origin" allowfullscreen>'
+        "</iframe></body></html>"
+    )
+    return Response(content=html, media_type="text/html; charset=utf-8")
 
 
 @app.get("/ideas", response_model=None)

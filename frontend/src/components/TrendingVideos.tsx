@@ -17,6 +17,7 @@
  * i comandi di YouTube tornano raggiungibili. */
 
 import { useState } from 'react'
+import { API_BASE } from '../api'
 import { Panel } from './ui'
 import { useVideos } from '../hooks/useRadarData'
 import type { VideoOut } from '../types'
@@ -83,19 +84,19 @@ function Stage({
     playsinline: '1',
     modestbranding: '1',
   })
-  // Dentro una webview (app desktop) YouTube rifiuta i contesti che non sa
-  // validare — "Error 153". Dichiarare l'origin, insieme all'origine https
-  // della webview (useHttpsScheme in tauri.conf.json), gli dà un referer
-  // verificabile. Nel browser è innocuo.
-  if (window.location.protocol.startsWith('http')) {
-    params.set('origin', window.location.origin)
-  }
+  // Nell'app desktop la webview vive su tauri://localhost: WebKit non manda
+  // il Referer per origini non-http e YouTube risponde "Error 153". La
+  // pagina-ponte del backend (/yt/<id>, servita da http://127.0.0.1) dà
+  // all'embed un genitore http verificabile. Sul web, embed diretto.
+  const src = API_BASE
+    ? `${API_BASE}/yt/${video.video_id}?${params}`
+    : `${video.embed_url}?${params}`
   return (
     <div className="relative overflow-hidden rounded-xl ring-1 ring-phosphor/25">
       <div className="aspect-video bg-black/40">
         <iframe
           key={`${video.video_id}:${muted}`}
-          src={`${video.embed_url}?${params}`}
+          src={src}
           title={video.title}
           allow="accelerometer; autoplay; encrypted-media; picture-in-picture"
           referrerPolicy="strict-origin-when-cross-origin"

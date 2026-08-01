@@ -93,6 +93,17 @@ def test_ideas_filters(client: TestClient, session: Session) -> None:
     assert client.get("/ideas", params={"topic_id": 999}).json() == []
 
 
+def test_youtube_bridge_wraps_embed(client: TestClient) -> None:
+    """La pagina-ponte incornicia l'embed e lascia passare solo i param noti."""
+    res = client.get("/yt/dQw4w9WgXcQ", params={"autoplay": "1", "evil": "x"})
+    assert res.status_code == 200
+    assert "text/html" in res.headers["content-type"]
+    assert "youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1" in res.text
+    assert "evil" not in res.text
+    # Un id che non è un id di YouTube non produce una pagina.
+    assert client.get("/yt/nope!").status_code == 404
+
+
 def test_cors_only_for_tauri_webview(client: TestClient) -> None:
     """La webview dell'app desktop è autorizzata; un sito qualunque no."""
     res = client.get("/ideas", headers={"Origin": "tauri://localhost"})
