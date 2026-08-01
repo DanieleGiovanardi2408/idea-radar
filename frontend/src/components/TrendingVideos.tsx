@@ -83,6 +83,13 @@ function Stage({
     playsinline: '1',
     modestbranding: '1',
   })
+  // Dentro una webview (app desktop) YouTube rifiuta i contesti che non sa
+  // validare — "Error 153". Dichiarare l'origin, insieme all'origine https
+  // della webview (useHttpsScheme in tauri.conf.json), gli dà un referer
+  // verificabile. Nel browser è innocuo.
+  if (window.location.protocol.startsWith('http')) {
+    params.set('origin', window.location.origin)
+  }
   return (
     <div className="relative overflow-hidden rounded-xl ring-1 ring-phosphor/25">
       <div className="aspect-video bg-black/40">
@@ -91,6 +98,7 @@ function Stage({
           src={`${video.embed_url}?${params}`}
           title={video.title}
           allow="accelerometer; autoplay; encrypted-media; picture-in-picture"
+          referrerPolicy="strict-origin-when-cross-origin"
           allowFullScreen
           className="size-full"
         />
