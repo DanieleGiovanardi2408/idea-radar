@@ -9,7 +9,10 @@ ambiente PRIMA di importare ``app.*`` (i moduli leggono i path all'import).
 
 import os
 import shutil
+import signal
+import socket
 import sys
+import time
 from pathlib import Path
 
 
@@ -33,6 +36,45 @@ def bundled_path(name: str) -> Path:
     return root / name
 
 
+def port_busy(port: int) -> bool:
+    """La porta è già occupata su 127.0.0.1?"""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.5)
+        return sock.connect_ex(("127.0.0.1", port)) == 0
+
+
+def replace_previous_instance(home: Path, port: int) -> None:
+    """Sostituisce un backend orfano rimasto sulla porta.
+
+    Un force quit dell'app (⌘⌥Esc) non passa dal gestore d'uscita di Tauri:
+    il sidecar sopravvive, tiene la porta, e l'avvio successivo muore in
+    silenzio lasciando la UI a parlare con un processo VECCHIO (senza le
+    route o l'ambiente nuovi). Il pidfile scritto a ogni avvio ci dice chi
+    era il predecessore: se la porta è occupata, lo si termina e si prende
+    il suo posto. Se la porta è libera il pidfile è solo stantio.
+    """
+    pidfile = home / "backend.pid"
+    if not pidfile.exists():
+        return
+    try:
+        pid = int(pidfile.read_text().strip())
+    except ValueError:
+        pidfile.unlink(missing_ok=True)
+        return
+    if pid == os.getpid() or not port_busy(port):
+        pidfile.unlink(missing_ok=True)
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+        for _ in range(20):  # fino a ~5s perché la porta si liberi
+            if not port_busy(port):
+                break
+            time.sleep(0.25)
+    except (ProcessLookupError, PermissionError, OSError):
+        pass  # il PID non era più suo: meglio non insistere
+    pidfile.unlink(missing_ok=True)
+
+
 def main() -> None:
     home = user_home_dir()
     home.mkdir(parents=True, exist_ok=True)
@@ -54,7 +96,13 @@ def main() -> None:
     from app.api import app  # importato DOPO aver sistemato l'ambiente
 
     port = int(os.environ.get("IDEA_RADAR_PORT", "8765"))
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
+    replace_previous_instance(home, port)
+    pidfile = home / "backend.pid"
+    pidfile.write_text(str(os.getpid()))
+    try:
+        uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
+    finally:
+        pidfile.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
