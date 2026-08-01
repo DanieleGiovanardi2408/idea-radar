@@ -16,7 +16,7 @@
 [![LLM](https://img.shields.io/badge/LLM-Ollama%20(local)-000000?logo=ollama&logoColor=white)](https://ollama.com/)
 [![License](https://img.shields.io/badge/License-MIT-2EE8A2)](LICENSE)
 
-[Why](#-why) · [Features](#-features) · [How it works](#-how-it-works) · [The views](#-the-four-views) · [Quick start](#-quick-start) · [CLI](#-cli) · [Configuration](#-configuration) · [Roadmap](#-roadmap)
+[**⬇ Download**](https://github.com/DanieleGiovanardi2408/idea-radar/releases/latest) · [Why](#-why) · [Features](#-features) · [How it works](#-how-it-works) · [The views](#-the-four-views) · [Quick start](#-quick-start) · [CLI](#-cli) · [Configuration](#-configuration) · [Roadmap](#-roadmap)
 
 <br/>
 
@@ -163,6 +163,19 @@ The interface is a single-page **"radar room"**: a dark, glass-panelled console 
 
 **There is no world map**, deliberately. Across 1762 archived items **not one field carries a location**. A map would have meant ~30 usable points out of 1762 signals presented as "where signals come from". A 2% sample dressed as a fact is worse than no panel.
 </details>
+
+## 📦 Desktop app
+
+**[Download the latest release](https://github.com/DanieleGiovanardi2408/idea-radar/releases/latest)** — `.dmg` for macOS (Apple Silicon & Intel), `.exe` installer for Windows. One window, backend included: no terminal, no setup.
+
+Two things to know:
+
+- **[Ollama](https://ollama.com/) is still required**, with the two models below — the app can't bundle a 5 GB model. Without it the radar runs in degraded mode (heuristic descriptions, no clustering).
+- **macOS will warn on first launch** (the app isn't code-signed): right-click the app → *Open* → *Open*. On Windows, SmartScreen: *More info* → *Run anyway*.
+
+Your data lives in `~/Library/Application Support/Idea Radar` (macOS) or `%APPDATA%\Idea Radar` (Windows): edit `config.yaml` there to declare your themes, and drop a `.env` with your free `GITHUB_TOKEN` in the same folder.
+
+Prefer running from source? Read on.
 
 ## 🚀 Quick start
 

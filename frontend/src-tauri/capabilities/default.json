@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "La finestra principale: solo i permessi di base. Il sidecar è avviato dal Rust, non dal JS, quindi non servono permessi shell.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

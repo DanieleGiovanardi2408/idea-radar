@@ -1,0 +1,93 @@
+name: Release desktop app
+
+# Si attiva sui tag `v*` (es. `git tag v0.1.0 && git push --tags`).
+# Per ogni piattaforma: impacchetta il backend Python con PyInstaller, lo
+# mette dove Tauri si aspetta il sidecar, builda l'app e allega gli installer
+# a una Release in BOZZA — si pubblica a mano dopo averli provati.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-14 # Apple Silicon
+            triple: aarch64-apple-darwin
+          - platform: macos-13 # Intel
+            triple: x86_64-apple-darwin
+          - platform: windows-latest
+            triple: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Build backend binary (PyInstaller)
+        working-directory: backend
+        shell: bash
+        run: |
+          uv sync --frozen
+          # --add-data usa ":" su unix e ";" su Windows.
+          SEP=":"; [ "$RUNNER_OS" = "Windows" ] && SEP=";"
+          uv run --with pyinstaller pyinstaller \
+            --onefile \
+            --name backend \
+            --add-data "config.yaml${SEP}." \
+            --collect-submodules app \
+            desktop_entry.py
+
+      - name: Place sidecar where Tauri expects it
+        shell: bash
+        run: |
+          mkdir -p frontend/src-tauri/binaries
+          EXT=""; [ "$RUNNER_OS" = "Windows" ] && EXT=".exe"
+          mv "backend/dist/backend${EXT}" \
+             "frontend/src-tauri/binaries/backend-${{ matrix.triple }}${EXT}"
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: frontend/src-tauri
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Generate icon set from the logo
+        working-directory: frontend
+        run: npm run tauri -- icon src-tauri/icons/icon.png
+
+      - name: Build app and attach to draft release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: frontend
+          tagName: ${{ github.ref_name }}
+          releaseName: "Idea Radar ${{ github.ref_name }}"
+          releaseBody: |
+            Installer per macOS (Apple Silicon e Intel) e Windows.
+
+            **Prerequisiti:** [Ollama](https://ollama.com) con i modelli
+            `qwen2.5:7b` e `nomic-embed-text` (senza, il radar parte in
+            modalità degradata). Su macOS, al primo avvio: tasto destro →
+            Apri (l'app non è firmata).
+          releaseDraft: true
+          prerelease: false

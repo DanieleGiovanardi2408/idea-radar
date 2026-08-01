@@ -93,6 +93,16 @@ def test_ideas_filters(client: TestClient, session: Session) -> None:
     assert client.get("/ideas", params={"topic_id": 999}).json() == []
 
 
+def test_cors_only_for_tauri_webview(client: TestClient) -> None:
+    """La webview dell'app desktop è autorizzata; un sito qualunque no."""
+    res = client.get("/ideas", headers={"Origin": "tauri://localhost"})
+    assert res.headers["access-control-allow-origin"] == "tauri://localhost"
+    assert "X-Total-Count" in res.headers.get("access-control-expose-headers", "")
+
+    res = client.get("/ideas", headers={"Origin": "https://evil.example"})
+    assert "access-control-allow-origin" not in res.headers
+
+
 def test_ideas_search_q(client: TestClient, session: Session) -> None:
     """La ricerca è in SQL: etichetta, sommario e nome del tema, case-insensitive."""
     _seed(session)

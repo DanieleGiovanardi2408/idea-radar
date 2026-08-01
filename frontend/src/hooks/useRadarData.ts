@@ -183,7 +183,15 @@ export function useVideos(opts?: { limit?: number; live?: boolean }) {
 }
 
 export function useHealth() {
-  return useQuery({ queryKey: ['health'], queryFn: api.health })
+  return useQuery({
+    queryKey: ['health'],
+    queryFn: api.health,
+    // Nell'app desktop il backend parte INSIEME alla finestra: per qualche
+    // secondo non risponde. Finché è giù si ritenta piano, e la UI si
+    // sblocca da sola appena arriva — niente "ricarica la pagina".
+    refetchInterval: (query) =>
+      query.state.data?.status === 'ok' ? false : 1500,
+  })
 }
 
 export function useIdea(id: number) {
@@ -206,6 +214,19 @@ export function useRunWatcher(): boolean {
     }
     prev.current = running
   }, [running, queryClient])
+
+  // Quando il backend passa da giù a su (avvio dell'app desktop, o riavvio
+  // in dev), le query fallite nel frattempo vanno rifatte tutte: senza,
+  // resterebbero in errore finché qualcuno non ricarica a mano.
+  const online = useHealth().data?.status === 'ok'
+  const wasOnline = useRef(online)
+  useEffect(() => {
+    if (!wasOnline.current && online) {
+      queryClient.invalidateQueries()
+    }
+    wasOnline.current = online
+  }, [online, queryClient])
+
   return running
 }
 

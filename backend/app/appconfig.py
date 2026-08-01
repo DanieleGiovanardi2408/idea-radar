@@ -4,13 +4,19 @@ Distinto da ``app.config`` (che legge i *segreti* dall'ambiente/.env):
 qui vive il *comportamento* della pipeline — fonti, keyword, scoring.
 """
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
-CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
+# Come DATA_DIR in db.py: l'app desktop punta a una copia utente del config
+# (modificabile e persistente), il default resta il file accanto al codice.
+CONFIG_PATH = Path(
+    os.environ.get("IDEA_RADAR_CONFIG")
+    or Path(__file__).resolve().parent.parent / "config.yaml"
+)
 
 
 class SourceConfig(BaseModel):

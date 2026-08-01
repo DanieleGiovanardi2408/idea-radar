@@ -1,0 +1,9 @@
+# Build Rust
+target/
+
+# Schemi generati da Tauri
+gen/
+
+# Il binario del backend (PyInstaller) viene prodotto dalla CI per piattaforma,
+# mai committato.
+binaries/backend*

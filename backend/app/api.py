@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Literal
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Response
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -45,6 +46,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="Idea Radar API", version="0.2.0", lifespan=lifespan)
+
+# CORS SOLO per la webview dell'app desktop (Tauri), che serve il frontend da
+# un'origine propria. In dev web non serve: il proxy Vite rende tutto
+# same-origin, e restare stretti qui evita di aprire l'API a pagine qualunque.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "tauri://localhost",  # macOS / Linux
+        "http://tauri.localhost",  # Windows
+        "https://tauri.localhost",
+    ],
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["X-Total-Count"],
+)
 
 
 def get_db() -> Iterator[Session]:

@@ -30,3 +30,7 @@ src/
 ```
 
 I test stanno accanto ai file che verificano (`*.test.tsx`); setup condiviso in `src/test/`.
+
+## App desktop (Tauri)
+
+`src-tauri/` contiene il wrapper desktop: la finestra carica questo frontend (buildato con `npm run build:desktop`, che imposta `VITE_API_BASE` da `.env.desktop`) e avvia il backend PyInstaller come sidecar sulla porta 8765. Gli installer li builda la CI di release (`.github/workflows/release.yml`) sui tag `v*`; in locale serve la toolchain Rust: `npm run tauri dev` (con il backend avviato a parte su :8765) o `npm run tauri build`.

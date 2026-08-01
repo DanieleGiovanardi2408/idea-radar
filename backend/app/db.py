@@ -1,5 +1,6 @@
 """Layer di storage SQLite."""
 
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -9,7 +10,14 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models import Item
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+# Di default i dati vivono accanto al codice (backend/data). L'app desktop
+# impacchettata NON può: lì __file__ punta dentro l'eseguibile scompattato in
+# una dir temporanea, quindi l'entry point (desktop_entry.py) imposta
+# IDEA_RADAR_DATA_DIR su una cartella utente persistente.
+DATA_DIR = Path(
+    os.environ.get("IDEA_RADAR_DATA_DIR")
+    or Path(__file__).resolve().parent.parent / "data"
+)
 DB_PATH = DATA_DIR / "idea_radar.db"
 
 _engine: Engine | None = None

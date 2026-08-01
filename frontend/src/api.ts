@@ -11,8 +11,13 @@ import type {
   VideosOut,
 } from './types'
 
+/** Base URL dell'API: vuota su web (il proxy Vite rende tutto same-origin),
+ *  impostata alla build dell'app desktop, dove il backend gira su una porta
+ *  locale propria (es. VITE_API_BASE=http://127.0.0.1:8765). */
+const BASE: string = import.meta.env.VITE_API_BASE ?? ''
+
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(path)
+  const res = await fetch(BASE + path)
   if (!res.ok) throw new Error(`HTTP ${res.status} su ${path}`)
   return res.json() as Promise<T>
 }
@@ -56,7 +61,7 @@ export const api = {
     if (params?.q) q.set('q', params.q)
     const qs = q.toString()
     const path = `/ideas${qs ? `?${qs}` : ''}`
-    const res = await fetch(path)
+    const res = await fetch(BASE + path)
     if (!res.ok) throw new Error(`HTTP ${res.status} su ${path}`)
     const rows = (await res.json()) as IdeaOut[]
     const total = Number(res.headers.get('X-Total-Count') ?? rows.length)
@@ -64,7 +69,7 @@ export const api = {
   },
   idea: (id: number) => get<IdeaDetailOut>(`/ideas/${id}`),
   patchIdea: async (id: number, body: PatchIdeaBody): Promise<IdeaOut> => {
-    const res = await fetch(`/ideas/${id}`, {
+    const res = await fetch(`${BASE}/ideas/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -83,7 +88,7 @@ export const api = {
   stats: () => get<StatsOut>('/stats'),
   runs: () => get<RunOut[]>('/runs'),
   startRun: async (): Promise<{ started: boolean; detail: string }> => {
-    const res = await fetch('/runs', { method: 'POST' })
+    const res = await fetch(`${BASE}/runs`, { method: 'POST' })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     return res.json()
   },
