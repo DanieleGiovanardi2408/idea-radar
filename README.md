@@ -166,7 +166,7 @@ The interface is a single-page **"radar room"**: a dark, glass-panelled console 
 
 ## 🚀 Quick start
 
-**Prerequisites:** [uv](https://docs.astral.sh/uv/) · Node.js 20+ · [Ollama](https://ollama.com/) with two models:
+**Prerequisites:** [uv](https://docs.astral.sh/uv/) · Node.js 22+ · [Ollama](https://ollama.com/) with two models:
 
 ```bash
 ollama pull qwen2.5:7b        # insights: summary, why_text, difficulty
