@@ -134,7 +134,9 @@ export function IdeaDetail({
         onClick={onClose}
       />
 
-      <aside className="drawer-enter relative ml-auto flex h-full w-full max-w-xl flex-col overflow-y-auto border-l border-white/10 bg-deep/95 shadow-[-24px_0_60px_-24px_rgba(0,0,0,0.9)] backdrop-blur-xl">
+      {/* Su schermi larghi il dossier respira: 576px erano pochi per mosse,
+          angolo di business, KPI e segnali tutti impilati. */}
+      <aside className="drawer-enter relative ml-auto flex h-full w-full max-w-xl flex-col overflow-y-auto border-l border-white/10 bg-deep/95 shadow-[-24px_0_60px_-24px_rgba(0,0,0,0.9)] backdrop-blur-xl lg:max-w-2xl 2xl:max-w-3xl">
         {/* accento fosforo sul bordo del quadrante */}
         <span className="pointer-events-none absolute inset-y-0 left-0 w-px bg-gradient-to-b from-transparent via-phosphor/50 to-transparent" />
         <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-[radial-gradient(420px_180px_at_15%_0%,rgba(46,232,162,0.08),transparent)]" />
@@ -288,10 +290,24 @@ export function IdeaDetail({
                   </ul>
                 )}
                 {idea.angle && (
-                  <div className="mt-3 rounded-lg border border-white/[0.06] bg-white/[0.03] p-3">
-                    <p className="hud mb-1.5 text-slate-500">Angolo di business</p>
-                    <p className="text-sm leading-relaxed text-slate-400">{idea.angle}</p>
-                  </div>
+                  /* Richiudibile: è il blocco più lungo del dossier e non
+                     serve a ogni apertura — chiuso di default, il titolo
+                     resta come invito. <details> nativo: gratis per la
+                     tastiera e per gli screen reader. */
+                  <details className="group mt-3 rounded-lg border border-white/[0.06] bg-white/[0.03]">
+                    <summary className="hud flex cursor-pointer list-none items-center justify-between p-3 text-slate-500 transition-colors hover:text-slate-300 [&::-webkit-details-marker]:hidden">
+                      Angolo di business
+                      <span
+                        aria-hidden
+                        className="text-phosphor transition-transform group-open:rotate-90"
+                      >
+                        ▸
+                      </span>
+                    </summary>
+                    <p className="px-3 pb-3 text-sm leading-relaxed text-slate-400">
+                      {idea.angle}
+                    </p>
+                  </details>
                 )}
               </Section>
             )}
