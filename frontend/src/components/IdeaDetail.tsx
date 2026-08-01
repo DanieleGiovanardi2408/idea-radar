@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react'
 import { useFocusTrap } from '../hooks/useFocusTrap'
 import { useIdea, useMarkSeen, usePatchIdea } from '../hooks/useRadarData'
 import type { IdeaDetailOut } from '../types'
@@ -16,6 +22,24 @@ import {
   ScoreRing,
   STATUS_STYLES,
 } from './ui'
+
+/* Larghezza del dossier: trascinabile dal bordo, ricordata tra le sessioni.
+   null = default responsive (le classi max-w-*); un numero = scelta esplicita
+   dell'utente, che vince finché non fa doppio click sulla maniglia. */
+const DRAWER_WIDTH_KEY = 'idea-radar:drawer-width'
+const DRAWER_MIN = 420
+
+function clampDrawerWidth(w: number): number {
+  // Mai più largo dello schermo meno un margine: il backdrop deve restare
+  // cliccabile, altrimenti sparisce il modo più naturale di chiudere.
+  const max = Math.max(DRAWER_MIN, Math.min(1100, window.innerWidth - 240))
+  return Math.round(Math.min(max, Math.max(DRAWER_MIN, w)))
+}
+
+function savedDrawerWidth(): number | null {
+  const raw = Number(localStorage.getItem(DRAWER_WIDTH_KEY))
+  return Number.isFinite(raw) && raw >= DRAWER_MIN ? raw : null
+}
 
 const METRIC_HINTS: Record<string, string> = {
   Heat: 'Velocità di crescita (stelle/giorno, engagement), non popolarità assoluta.',
@@ -108,6 +132,49 @@ export function IdeaDetail({
   const trappola = useRef<HTMLDivElement>(null)
   useFocusTrap(trappola)
 
+  // Ridimensionamento dal bordo: pointer capture sulla maniglia, così il
+  // trascinamento continua anche quando il mouse esce dalla maniglia stessa.
+  const [width, setWidth] = useState<number | null>(savedDrawerWidth)
+  const widthRef = useRef(width)
+  widthRef.current = width
+
+  const persistWidth = () => {
+    if (widthRef.current === null) localStorage.removeItem(DRAWER_WIDTH_KEY)
+    else localStorage.setItem(DRAWER_WIDTH_KEY, String(widthRef.current))
+  }
+
+  const startDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const handle = e.currentTarget
+    // Optional chaining: jsdom (i test) non implementa la pointer capture.
+    handle.setPointerCapture?.(e.pointerId)
+    const onMove = (ev: PointerEvent) =>
+      setWidth(clampDrawerWidth(window.innerWidth - ev.clientX))
+    const onUp = () => {
+      handle.removeEventListener('pointermove', onMove)
+      handle.removeEventListener('pointerup', onUp)
+      persistWidth()
+    }
+    handle.addEventListener('pointermove', onMove)
+    handle.addEventListener('pointerup', onUp)
+  }
+
+  const resetWidth = () => {
+    setWidth(null)
+    localStorage.removeItem(DRAWER_WIDTH_KEY)
+  }
+
+  const nudgeWidth = (delta: number) => {
+    // Da tastiera si parte dalla larghezza reale, anche se è quella di default.
+    // `|| 576`, non `??`: in ambienti senza layout (jsdom) clientWidth è 0.
+    const current =
+      widthRef.current ??
+      (trappola.current?.querySelector('aside')?.clientWidth || 576)
+    const next = clampDrawerWidth(current + delta)
+    setWidth(next)
+    localStorage.setItem(DRAWER_WIDTH_KEY, String(next))
+  }
+
   const history = idea?.history ?? []
   const sparkTone =
     history.length > 1
@@ -135,8 +202,29 @@ export function IdeaDetail({
       />
 
       {/* Su schermi larghi il dossier respira: 576px erano pochi per mosse,
-          angolo di business, KPI e segnali tutti impilati. */}
-      <aside className="drawer-enter relative ml-auto flex h-full w-full max-w-xl flex-col overflow-y-auto border-l border-white/10 bg-deep/95 shadow-[-24px_0_60px_-24px_rgba(0,0,0,0.9)] backdrop-blur-xl lg:max-w-2xl 2xl:max-w-3xl">
+          angolo di business, KPI e segnali tutti impilati. Il default è
+          responsive; se l'utente ha trascinato il bordo, vince la sua scelta. */}
+      <aside
+        className={`drawer-enter relative ml-auto flex h-full w-full flex-col overflow-y-auto border-l border-white/10 bg-deep/95 shadow-[-24px_0_60px_-24px_rgba(0,0,0,0.9)] backdrop-blur-xl ${
+          width === null ? 'max-w-xl lg:max-w-2xl 2xl:max-w-3xl' : ''
+        }`}
+        style={width !== null ? { width, maxWidth: '100vw' } : undefined}
+      >
+        {/* Maniglia di ridimensionamento: trascina per allargare/restringere,
+            doppio click per tornare al default, frecce ← → da tastiera. */}
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Ridimensiona il dossier: trascina, frecce ← → da tastiera, doppio click per il default"
+          tabIndex={0}
+          onPointerDown={startDrag}
+          onDoubleClick={resetWidth}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowLeft') nudgeWidth(32)
+            if (e.key === 'ArrowRight') nudgeWidth(-32)
+          }}
+          className="absolute inset-y-0 left-0 z-20 w-2 cursor-col-resize touch-none transition-colors hover:bg-phosphor/20 focus-visible:bg-phosphor/25 focus-visible:outline-none"
+        />
         {/* accento fosforo sul bordo del quadrante */}
         <span className="pointer-events-none absolute inset-y-0 left-0 w-px bg-gradient-to-b from-transparent via-phosphor/50 to-transparent" />
         <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-[radial-gradient(420px_180px_at_15%_0%,rgba(46,232,162,0.08),transparent)]" />

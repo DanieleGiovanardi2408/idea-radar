@@ -156,6 +156,31 @@ describe('IdeaDetail', () => {
     await screen.findByRole('button', { name: /pinna in cima/i })
     expect(screen.queryByText(/le mosse/i)).not.toBeInTheDocument()
   })
+
+  it('il bordo si ridimensiona da tastiera e la scelta viene ricordata', async () => {
+    const user = userEvent.setup()
+    localStorage.removeItem('idea-radar:drawer-width')
+    open()
+    const handle = await screen.findByRole('separator')
+
+    handle.focus()
+    await user.keyboard('{ArrowLeft}')
+
+    // ← allarga: larghezza esplicita sull'aside e persistita per la prossima volta.
+    const aside = screen.getByRole('dialog').querySelector('aside')!
+    const dopoUnPasso = parseInt(aside.style.width, 10)
+    expect(dopoUnPasso).toBeGreaterThan(0)
+    expect(localStorage.getItem('idea-radar:drawer-width')).toBe(String(dopoUnPasso))
+
+    // → restringe.
+    await user.keyboard('{ArrowRight}')
+    expect(parseInt(aside.style.width, 10)).toBeLessThan(dopoUnPasso)
+
+    // Doppio click: si torna al default responsive (niente width inline).
+    await user.dblClick(handle)
+    expect(aside.style.width).toBe('')
+    expect(localStorage.getItem('idea-radar:drawer-width')).toBeNull()
+  })
 })
 
 describe('il mock di fetch', () => {
