@@ -18,10 +18,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Niente macos-13 (Intel): i runner Intel sono stati dismessi da
+          # GitHub e il job resta in coda per sempre. Chi ha un Mac Intel
+          # può compilare dai sorgenti.
           - platform: macos-14 # Apple Silicon
             triple: aarch64-apple-darwin
-          - platform: macos-13 # Intel
-            triple: x86_64-apple-darwin
           - platform: windows-latest
             triple: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.platform }}
@@ -83,7 +84,7 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Idea Radar ${{ github.ref_name }}"
           releaseBody: |
-            Installer per macOS (Apple Silicon e Intel) e Windows.
+            Installer per macOS (Apple Silicon) e Windows.
 
             **Prerequisiti:** [Ollama](https://ollama.com) con i modelli
             `qwen2.5:7b` e `nomic-embed-text` (senza, il radar parte in

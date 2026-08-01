@@ -166,7 +166,7 @@ The interface is a single-page **"radar room"**: a dark, glass-panelled console 
 
 ## 📦 Desktop app
 
-**[Download the latest release](https://github.com/DanieleGiovanardi2408/idea-radar/releases/latest)** — `.dmg` for macOS (Apple Silicon & Intel), `.exe` installer for Windows. One window, backend included: no terminal, no setup.
+**[Download the latest release](https://github.com/DanieleGiovanardi2408/idea-radar/releases/latest)** — `.dmg` for macOS (Apple Silicon), `.exe` installer for Windows. One window, backend included: no terminal, no setup. (Intel Mac? Build from source below.)
 
 Two things to know:
 
