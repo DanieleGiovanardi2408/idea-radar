@@ -171,7 +171,13 @@ The interface is a single-page **"radar room"**: a dark, glass-panelled console 
 Two things to know:
 
 - **[Ollama](https://ollama.com/) is still required**, with the two models below — the app can't bundle a 5 GB model. Without it the radar runs in degraded mode (heuristic descriptions, no clustering).
-- **macOS will warn on first launch** (the app isn't code-signed): right-click the app → *Open* → *Open*. On Windows, SmartScreen: *More info* → *Run anyway*.
+- **macOS will claim the app is "damaged"** — it isn't: the app is not code-signed, and Gatekeeper quarantines unsigned downloads. After moving it to Applications, clear the quarantine once from Terminal, then open normally:
+
+  ```bash
+  xattr -cr "/Applications/Idea Radar.app"
+  ```
+
+  On Windows, SmartScreen: *More info* → *Run anyway*.
 
 Your data lives in `~/Library/Application Support/Idea Radar` (macOS) or `%APPDATA%\Idea Radar` (Windows): edit `config.yaml` there to declare your themes, and drop a `.env` with your free `GITHUB_TOKEN` in the same folder.
 

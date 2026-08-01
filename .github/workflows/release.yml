@@ -88,7 +88,16 @@ jobs:
 
             **Prerequisiti:** [Ollama](https://ollama.com) con i modelli
             `qwen2.5:7b` e `nomic-embed-text` (senza, il radar parte in
-            modalità degradata). Su macOS, al primo avvio: tasto destro →
-            Apri (l'app non è firmata).
+            modalità degradata).
+
+            **macOS dirà che l'app è "danneggiata"** — non lo è: non è
+            firmata, e Gatekeeper mette in quarantena i download non firmati.
+            Dopo averla spostata in Applicazioni, una volta sola:
+
+            ```
+            xattr -cr "/Applications/Idea Radar.app"
+            ```
+
+            Su Windows (SmartScreen): *Ulteriori informazioni* → *Esegui comunque*.
           releaseDraft: true
           prerelease: false
