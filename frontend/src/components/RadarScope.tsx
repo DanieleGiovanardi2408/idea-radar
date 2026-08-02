@@ -12,22 +12,45 @@ import type { IdeaOut } from '../types'
 import {
   blipsFor,
   CENTER,
+  pointAt,
   R_MAX,
   R_MIN,
+  sectorsFor,
   SIZE,
   type Blip,
+  type Sector,
 } from './radarGeometry'
 
 const SWEEP_SECONDS = 7
 
+/** Lo spicchio come path SVG (settore circolare pieno tra R_MIN e il bordo). */
+function sectorPath(sector: Sector): string {
+  const a = pointAt(sector.start, R_MAX)
+  const b = pointAt(sector.end, R_MAX)
+  const largeArc = sector.end - sector.start > 180 ? 1 : 0
+  return `M${CENTER},${CENTER} L${a.x},${a.y} A${R_MAX},${R_MAX} 0 ${largeArc} 1 ${b.x},${b.y} Z`
+}
+
 export function RadarScope({
   ideas,
   onSelect,
+  profiles = [],
+  activeProfile = null,
 }: {
   ideas: IdeaOut[]
   onSelect: (id: number) => void
+  /** I temi configurati, nell'ordine di config.yaml: decidono gli spicchi. */
+  profiles?: { name: string; label: string }[]
+  /** Tema selezionato nel filtro: il suo spicchio si accende. */
+  activeProfile?: string | null
 }) {
-  const blips = useMemo(() => blipsFor(ideas), [ideas])
+  const order = useMemo(() => profiles.map((p) => p.name), [profiles])
+  const labelOf = useMemo(
+    () => new Map(profiles.map((p) => [p.name, p.label])),
+    [profiles],
+  )
+  const blips = useMemo(() => blipsFor(ideas, order), [ideas, order])
+  const sectors = useMemo(() => sectorsFor(ideas, order), [ideas, order])
   const [hover, setHover] = useState<Blip | null>(null)
   const proposedCount = ideas.filter((i) => i.status === 'proposed').length
 
@@ -139,6 +162,53 @@ export function RadarScope({
           ))}
           <line x1={CENTER} y1={CENTER - R_MAX} x2={CENTER} y2={CENTER + R_MAX} stroke="rgba(146,180,210,0.07)" />
           <line x1={CENTER - R_MAX} y1={CENTER} x2={CENTER + R_MAX} y2={CENTER} stroke="rgba(146,180,210,0.07)" />
+
+          {/* Gli spicchi: uno per tema. Compaiono solo se c'è più di un tema —
+              con uno solo il quadrante intero È lo spicchio. */}
+          {sectors.length > 1 &&
+            sectors.map((sector) => {
+              const divider = pointAt(sector.start, R_MAX)
+              const mid = (sector.start + sector.end) / 2
+              const labelAt = pointAt(mid, R_MAX + 16)
+              const active = sector.profile !== null && sector.profile === activeProfile
+              return (
+                <g key={sector.profile ?? '∅'}>
+                  {active && (
+                    <path
+                      d={sectorPath(sector)}
+                      fill="var(--color-phosphor)"
+                      fillOpacity="0.05"
+                      stroke="var(--color-phosphor)"
+                      strokeOpacity="0.22"
+                      strokeWidth="1"
+                    />
+                  )}
+                  <line
+                    x1={CENTER}
+                    y1={CENTER}
+                    x2={divider.x}
+                    y2={divider.y}
+                    stroke="rgba(46,232,162,0.14)"
+                    strokeWidth="1"
+                    strokeDasharray="2 4"
+                  />
+                  <text
+                    x={labelAt.x}
+                    y={labelAt.y}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    className="font-display"
+                    fontSize="9.5"
+                    letterSpacing="0.08em"
+                    fill={active ? 'var(--color-phosphor)' : 'rgba(146,180,210,0.55)'}
+                  >
+                    {sector.profile === null
+                      ? 'senza tema'
+                      : (labelOf.get(sector.profile) ?? sector.profile)}
+                  </text>
+                </g>
+              )
+            })}
 
           {/* tacche sull'anello esterno */}
           {Array.from({ length: 24 }, (_, i) => i * 15).map((deg) => {

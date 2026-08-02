@@ -99,3 +99,42 @@ describe('RadarScope da tastiera', () => {
     expect(occorrenze.length).toBeGreaterThan(0)
   })
 })
+
+describe('gli spicchi per tema', () => {
+  const dueTemi = [
+    fakeIdeaOut({ id: 1, profile: 'ai-agents', composite: 0.8 }),
+    fakeIdeaOut({ id: 2, profile: 'iot', composite: 0.5, label: 'Sensore' }),
+  ]
+  const profili = [
+    { name: 'ai-agents', label: 'Agenti AI' },
+    { name: 'iot', label: 'IoT' },
+  ]
+
+  it('con più temi disegna le etichette degli spicchi', () => {
+    render(<RadarScope ideas={dueTemi} onSelect={() => {}} profiles={profili} />)
+    expect(screen.getByText('Agenti AI')).toBeInTheDocument()
+    expect(screen.getByText('IoT')).toBeInTheDocument()
+  })
+
+  it('con un tema solo niente spicchi: il quadrante intero è lo spicchio', () => {
+    render(
+      <RadarScope
+        ideas={[dueTemi[0]]}
+        onSelect={() => {}}
+        profiles={profili}
+      />,
+    )
+    expect(screen.queryByText('Agenti AI')).toBeNull()
+  })
+
+  it('le idee senza profilo hanno lo spicchio "senza tema"', () => {
+    render(
+      <RadarScope
+        ideas={[...dueTemi, fakeIdeaOut({ id: 3, profile: null })]}
+        onSelect={() => {}}
+        profiles={profili}
+      />,
+    )
+    expect(screen.getByText('senza tema')).toBeInTheDocument()
+  })
+})

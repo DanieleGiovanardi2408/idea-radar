@@ -19,8 +19,9 @@ export function RadarView({ onSelect }: { onSelect: (id: number) => void }) {
 
   const { data: profiles = [] } = useProfiles()
 
-  // Il quadrante mostra il vivo, qualunque cosa filtri la lista sotto.
-  const scopeQuery = useIdeas({ profile })
+  // Il quadrante mostra SEMPRE tutti i temi: selezionarne uno accende il suo
+  // spicchio invece di far sparire gli altri — la mappa resta intera.
+  const scopeQuery = useIdeas({})
   const scopeIdeas = scopeQuery.data?.rows ?? []
 
   // La lista: filtri, ricerca e paginazione li applica il server.
@@ -102,9 +103,8 @@ export function RadarView({ onSelect }: { onSelect: (id: number) => void }) {
       <div className="space-y-4">
         {themes}
         <EmptyState>
-          {profile
-            ? 'Nessuna idea in questo tema, per ora. Prova "Tutti".'
-            : 'Il quadrante è vuoto: nessun segnale ancora intercettato. Lancia un run per iniziare la scansione.'}
+          Il quadrante è vuoto: nessun segnale ancora intercettato. Lancia un
+          run per iniziare la scansione.
         </EmptyState>
       </div>
     )
@@ -113,8 +113,15 @@ export function RadarView({ onSelect }: { onSelect: (id: number) => void }) {
   return (
     <div className="space-y-4">
       {themes}
-      {/* Il quadrante: tutte le idee vive, qualunque sia il filtro della lista */}
-      <RadarScope ideas={scopeIdeas} onSelect={onSelect} />
+      {/* Il quadrante: tutte le idee vive, qualunque sia il filtro della lista.
+          I profili configurati decidono gli spicchi; il tema selezionato accende
+          il suo. */}
+      <RadarScope
+        ideas={scopeIdeas}
+        onSelect={onSelect}
+        profiles={profiles}
+        activeProfile={profile}
+      />
 
       <div className="glass flex flex-wrap items-center gap-3 rounded-2xl p-2">
         <div

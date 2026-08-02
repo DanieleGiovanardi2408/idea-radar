@@ -122,6 +122,73 @@ def _to_video(entry: dict, profile: str | None) -> Video | None:
     )
 
 
+def filter_relevant(
+    videos: list[Video],
+    config: AppConfig,
+    settings: Settings,
+    embedder=None,
+) -> tuple[list[Video], int]:
+    """Tiene solo i video pertinenti al loro tema. Ritorna (tenuti, scartati).
+
+    Tre gradini, dal più economico: blocklist di canali (gratis), poi
+    similarità embedding tra titolo e keyword del tema — lo stesso modello
+    del clustering, un batch solo per tutto il pannello. Se Ollama non c'è
+    si tiene tutto: un pannello di contesto non pertinente al 100% è meglio
+    di un pannello morto perché il filtro non poteva giudicare.
+    """
+    cfg = config.videos
+    blocked = [b.lower() for b in cfg.blocked_channels if b.strip()]
+    kept = [
+        v for v in videos if not any(b in v.channel.lower() for b in blocked)
+    ]
+    dropped = len(videos) - len(kept)
+    if cfg.min_similarity <= 0 or not kept:
+        return kept, dropped
+
+    from app.embeddings import (
+        EmbeddingError,
+        OllamaEmbedder,
+        cosine,
+        text_for_embedding,
+    )
+
+    themes = {
+        p.name: text_for_embedding(", ".join(p.keywords))
+        for p in config.effective_profiles()
+    }
+    names = list(themes)
+    texts = [themes[n] for n in names] + [
+        text_for_embedding(v.title) for v in kept
+    ]
+    embedder = embedder or OllamaEmbedder(settings)
+    try:
+        vectors = embedder.embed_many(texts)
+    except EmbeddingError as exc:
+        logger.warning("Filtro video senza embedding (%s): tengo tutto.", exc)
+        return kept, dropped
+
+    theme_vec = dict(zip(names, vectors[: len(names)], strict=True))
+    survivors: list[Video] = []
+    for video, vec in zip(kept, vectors[len(names) :], strict=True):
+        anchor = theme_vec.get(video.profile or "")
+        if vec is None or anchor is None:
+            survivors.append(video)  # non giudicabile ≠ colpevole
+            continue
+        similarity = cosine(anchor, vec)
+        if similarity >= cfg.min_similarity:
+            survivors.append(video)
+        else:
+            dropped += 1
+            logger.info(
+                "Video fuori tema scartato (%.2f < %.2f): %r [%s]",
+                similarity,
+                cfg.min_similarity,
+                video.title[:60],
+                video.channel,
+            )
+    return survivors, dropped
+
+
 def trending_videos(
     config: AppConfig,
     settings: Settings,
@@ -130,6 +197,7 @@ def trending_videos(
     live_only: bool = False,
     client: httpx.Client | None = None,
     use_cache: bool = True,
+    embedder=None,
 ) -> dict:
     """Video per i temi del radar, un gruppo di risultati per profilo.
 
@@ -187,6 +255,12 @@ def trending_videos(
     finally:
         if owns_client:
             client.close()
+
+    # Il filtro di pertinenza lavora PRIMA della cache: un fuori tema scartato
+    # non deve ripresentarsi gratis per i prossimi 15 minuti.
+    collected, dropped = filter_relevant(collected, config, settings, embedder)
+    if dropped:
+        logger.info("Pannello video: %d fuori tema scartati.", dropped)
 
     if use_cache:
         _cache[cache_key] = _CacheEntry(collected)

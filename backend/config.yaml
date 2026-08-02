@@ -347,3 +347,11 @@ outcomes:
 #   miss_ratio: 0.1     # miss: sotto questa frazione E senza item nuovi
 #   min_abs_gain: 25.0  # senza un "prima": hit da questo guadagno assoluto
 #   min_span_hours: 12.0
+
+# Pannello video — pertinenza prima di tutto (asse C del piano v2).
+# La ricerca "più visti della settimana" su keyword generiche pesca anche
+# contenuto virale fuori tema: il filtro confronta (embedding) il titolo del
+# video con le keyword del suo tema. Se Ollama non c'è, si tiene tutto.
+videos:
+  min_similarity: 0.4   # 0 = filtro spento; si tara guardando cosa scarta nel log
+  blocked_channels: []  # es. ["peppa pig"] — match per sottostringa, senza maiuscole

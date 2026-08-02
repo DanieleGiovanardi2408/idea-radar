@@ -187,6 +187,24 @@ class EnrichmentConfig(BaseModel):
     pypi_week_cap: float = 20_000.0
 
 
+class VideosConfig(BaseModel):
+    """Il pannello video: pertinenza prima di tutto.
+
+    ``order=viewCount`` su keyword generiche pesca anche contenuto virale
+    fuori tema (Peppa Pig su "smart home", storicamente). Due difese: la
+    similarità embedding tra titolo e keyword del tema, e una blocklist di
+    canali per i recidivi.
+    """
+
+    # Similarità coseno minima tra il titolo del video e le keyword del suo
+    # tema (stesso modello di embedding del clustering). 0 = filtro spento.
+    # La soglia giusta dipende dal modello: parte prudente, si tara guardando
+    # cosa scarta nel log.
+    min_similarity: float = 0.4
+    # Canali esclusi a prescindere (match per sottostringa, case-insensitive).
+    blocked_channels: list[str] = Field(default_factory=list)
+
+
 class OutcomesConfig(BaseModel):
     """Il radar che si valuta: verdetti sulle idee proposte in passato.
 
@@ -265,6 +283,7 @@ class AppConfig(BaseModel):
     enrichment: EnrichmentConfig = Field(default_factory=EnrichmentConfig)
     moves: MovesConfig = Field(default_factory=MovesConfig)
     outcomes: OutcomesConfig = Field(default_factory=OutcomesConfig)
+    videos: VideosConfig = Field(default_factory=VideosConfig)
 
     def enabled_sources(self) -> list[SourceConfig]:
         return [s for s in self.sources if s.enabled]

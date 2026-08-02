@@ -1,9 +1,9 @@
 /* La geometria del quadrante.
  *
  * Il radar fa tre affermazioni che a schermo non si possono verificare: la
- * distanza dal centro *è* `1 − composite`, l'angolo raggruppa per topic, e la
- * mappa non balla tra due render sugli stessi dati. Finché stavano dentro il
- * componente nessuno le aveva messe alla prova.
+ * distanza dal centro *è* `1 − composite`, l'angolo è uno spicchio per PROFILO
+ * (il macro-tema dichiarato), e la mappa non balla tra due render sugli stessi
+ * dati. Finché stavano dentro il componente nessuno le aveva messe alla prova.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -11,14 +11,16 @@ import {
   blipsFor,
   CENTER,
   MAX_BLIPS,
+  pointAt,
   R_MAX,
   R_MIN,
   radiusOf,
+  sectorsFor,
 } from './radarGeometry'
 import { fakeIdeaOut } from '../test/utils'
 
-const idea = (id: number, composite: number, topic_id = 1) =>
-  fakeIdeaOut({ id, composite, topic_id, label: `Idea ${id}` })
+const idea = (id: number, composite: number, profile: string | null = 'ai-agents') =>
+  fakeIdeaOut({ id, composite, profile, label: `Idea ${id}` })
 
 describe('geometria dei blip', () => {
   it('il punteggio migliore sta più vicino al centro', () => {
@@ -27,8 +29,6 @@ describe('geometria dei blip', () => {
   })
 
   it('la distanza è 1 − composite, riscalata tra R_MIN e R_MAX', () => {
-    // Le due estremità fissano la scala: composite 1 al bordo interno,
-    // composite 0 su quello esterno.
     const [pieno] = blipsFor([idea(1, 1)])
     const [vuoto] = blipsFor([idea(1, 0)])
     expect(radiusOf(pieno)).toBeCloseTo(R_MIN, 5)
@@ -39,9 +39,6 @@ describe('geometria dei blip', () => {
   })
 
   it('un composite fuori scala non esce dal quadrante', () => {
-    // Il backend non dovrebbe mandarli, ma un blip a 3000px dal centro sarebbe
-    // invisibile e inspiegabile: il clamp è la differenza tra un dato sbagliato
-    // e un'interfaccia rotta.
     for (const composite of [-5, 1.4, 99]) {
       const [blip] = blipsFor([idea(1, composite)])
       const r = radiusOf(blip)
@@ -50,28 +47,31 @@ describe('geometria dei blip', () => {
     }
   })
 
-  it('idee dello stesso topic finiscono nello stesso settore', () => {
+  it('idee dello stesso profilo finiscono nello stesso spicchio', () => {
     const blips = blipsFor([
-      idea(1, 0.5, 10),
-      idea(2, 0.5, 10),
-      idea(3, 0.5, 20),
-      idea(4, 0.5, 20),
+      idea(1, 0.5, 'agenti'),
+      idea(2, 0.5, 'agenti'),
+      idea(3, 0.5, 'iot'),
+      idea(4, 0.5, 'iot'),
     ])
-    const perTopic = new Map<number, number[]>()
+    // Due profili in ordine alfabetico: agenti 0-180°, iot 180-360°.
     for (const b of blips) {
-      const key = b.idea.topic_id ?? -1
-      perTopic.set(key, [...(perTopic.get(key) ?? []), b.angle])
+      if (b.idea.profile === 'agenti') expect(b.angle).toBeLessThan(180)
+      else expect(b.angle).toBeGreaterThanOrEqual(180)
     }
-    // Due topic, due settori da 180°: ogni gruppo sta dentro il suo.
-    const [primo, secondo] = [...perTopic.values()]
-    expect(Math.max(...primo)).toBeLessThan(180)
-    expect(Math.min(...secondo)).toBeGreaterThanOrEqual(180)
+  })
+
+  it('l\'ordine dei profili configurati comanda sugli spicchi', () => {
+    const ideas = [idea(1, 0.5, 'zeta'), idea(2, 0.5, 'alfa')]
+    // Senza ordine: alfabetico (alfa prima). Con ordine: zeta prima.
+    const [conOrdine] = blipsFor(ideas, ['zeta', 'alfa'])
+    expect(conOrdine.idea.id).toBe(1)
+    expect(conOrdine.angle).toBeLessThan(180)
   })
 
   it('la stessa lista dà le stesse posizioni: la mappa non balla', () => {
-    const ideas = [idea(1, 0.7, 3), idea(2, 0.4, 9), idea(3, 0.55, 3)]
+    const ideas = [idea(1, 0.7, 'a'), idea(2, 0.4, 'b'), idea(3, 0.55, 'a')]
     expect(blipsFor(ideas)).toEqual(blipsFor(ideas))
-    // Nemmeno se arrivano in ordine diverso: l'ordinamento è interno.
     expect(blipsFor([...ideas].reverse()).map((b) => [b.x, b.y])).toEqual(
       blipsFor(ideas).map((b) => [b.x, b.y]),
     )
@@ -83,7 +83,6 @@ describe('geometria dei blip', () => {
     )
     const blips = blipsFor(molte)
     expect(blips).toHaveLength(MAX_BLIPS)
-    // Il composite più alto è dentro, il più basso è fuori.
     const dentro = blips.map((b) => b.idea.id)
     expect(dentro).toContain(MAX_BLIPS + 20)
     expect(dentro).not.toContain(1)
@@ -91,10 +90,11 @@ describe('geometria dei blip', () => {
 
   it('senza idee non c’è niente da disegnare', () => {
     expect(blipsFor([])).toEqual([])
+    expect(sectorsFor([])).toEqual([])
   })
 
-  it('un topic assente non spacca la geometria', () => {
-    const [blip] = blipsFor([idea(1, 0.5, undefined as unknown as number)])
+  it('un profilo assente non spacca la geometria', () => {
+    const [blip] = blipsFor([idea(1, 0.5, null)])
     expect(Number.isFinite(blip.x)).toBe(true)
     expect(Number.isFinite(blip.y)).toBe(true)
     expect(radiusOf(blip)).toBeGreaterThan(0)
@@ -102,7 +102,34 @@ describe('geometria dei blip', () => {
 
   it('il centro del quadrante è il riferimento', () => {
     const [blip] = blipsFor([idea(1, 1)])
-    // composite 1 e un solo topic: il blip sta sopra il centro, a R_MIN.
-    expect(blip.x).toBeCloseTo(CENTER + R_MIN * Math.cos(((blip.angle - 90) * Math.PI) / 180), 5)
+    expect(blip.x).toBeCloseTo(
+      CENTER + R_MIN * Math.cos(((blip.angle - 90) * Math.PI) / 180),
+      5,
+    )
+  })
+})
+
+describe('gli spicchi', () => {
+  it('uno per profilo presente, larghezza uguale, senza-tema in coda', () => {
+    const sectors = sectorsFor(
+      [idea(1, 0.5, 'iot'), idea(2, 0.5, 'agenti'), idea(3, 0.5, null)],
+      ['agenti', 'iot'],
+    )
+    expect(sectors.map((s) => s.profile)).toEqual(['agenti', 'iot', null])
+    for (const s of sectors) expect(s.end - s.start).toBeCloseTo(120, 5)
+  })
+
+  it('i profili configurati ma assenti dalle idee non aprono spicchi vuoti', () => {
+    const sectors = sectorsFor([idea(1, 0.5, 'agenti')], ['agenti', 'iot', 'llm'])
+    expect(sectors.map((s) => s.profile)).toEqual(['agenti'])
+  })
+
+  it('pointAt: 0° è ore 12, 90° è ore 3', () => {
+    const su = pointAt(0, 100)
+    expect(su.x).toBeCloseTo(CENTER, 5)
+    expect(su.y).toBeCloseTo(CENTER - 100, 5)
+    const destra = pointAt(90, 100)
+    expect(destra.x).toBeCloseTo(CENTER + 100, 5)
+    expect(destra.y).toBeCloseTo(CENTER, 5)
   })
 })

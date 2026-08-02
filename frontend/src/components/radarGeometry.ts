@@ -2,9 +2,14 @@
  *
  * Qui vivono le tre affermazioni che il radar fa e che non si possono verificare
  * guardando lo schermo: la distanza dal centro è `1 − composite` (le opportunità
- * migliori stanno sulla rotta, vicine al centro), l'angolo è un settore stabile
- * per topic, e la posizione non cambia tra due render con gli stessi dati. Erano
- * dentro il componente, quindi non erano mai state messe alla prova.
+ * migliori stanno sulla rotta, vicine al centro), l'angolo è uno SPICCHIO
+ * stabile per profilo (il macro-tema dichiarato in config), e la posizione non
+ * cambia tra due render con gli stessi dati.
+ *
+ * Prima lo spicchio era per topic: con 150 topic i settori erano coriandoli da
+ * 2.4° — matematicamente veri, visivamente rumore. Con 4-5 profili l'angolo
+ * torna a dire qualcosa: "sta nascendo roba negli agenti, il mio spicchio IoT
+ * è vuoto" si vede a colpo d'occhio.
  */
 
 import type { IdeaOut } from '../types'
@@ -23,29 +28,69 @@ export type Blip = {
   proposed: boolean
 }
 
-export function blipsFor(ideas: IdeaOut[]): Blip[] {
-  const topicOrder = Array.from(
-    new Set(ideas.map((i) => i.topic_id ?? -1)),
-  ).sort((a, b) => a - b)
-  const sector = 360 / Math.max(topicOrder.length, 1)
+export type Sector = {
+  /** null = idee che nessun profilo reclama ("senza tema"). */
+  profile: string | null
+  start: number
+  end: number
+}
+
+/** Un punto sul quadrante: angolo in gradi (0 = ore 12, orario) e raggio. */
+export function pointAt(angleDeg: number, radius: number): { x: number; y: number } {
+  const rad = ((angleDeg - 90) * Math.PI) / 180
+  return {
+    x: CENTER + radius * Math.cos(rad),
+    y: CENTER + radius * Math.sin(rad),
+  }
+}
+
+/** Gli spicchi del quadrante: uno per profilo PRESENTE tra le idee.
+ *
+ *  `order` (i profili come configurati) decide la sequenza; i profili non in
+ *  lista seguono in ordine alfabetico, e il cestino "senza tema" chiude sempre
+ *  il giro. Larghezza uguale per tutti, di proposito: pesare gli spicchi sul
+ *  numero di idee li farebbe ballare a ogni run, e la stabilità della mappa
+ *  vale più della densità. */
+export function sectorsFor(ideas: IdeaOut[], order: string[] = []): Sector[] {
+  const present = new Set<string | null>(ideas.map((i) => i.profile ?? null))
+  const named: (string | null)[] = [
+    ...order.filter((p) => present.has(p)),
+    ...[...present]
+      .filter((p): p is string => p !== null && !order.includes(p))
+      .sort(),
+  ]
+  if (present.has(null)) named.push(null)
+  const width = 360 / Math.max(named.length, 1)
+  return named.map((profile, index) => ({
+    profile,
+    start: index * width,
+    end: (index + 1) * width,
+  }))
+}
+
+export function blipsFor(ideas: IdeaOut[], order: string[] = []): Blip[] {
+  const sectors = sectorsFor(ideas, order)
+  const sectorIndex = new Map(sectors.map((s, i) => [s.profile, i]))
+  const width = 360 / Math.max(sectors.length, 1)
 
   return ideas
     .slice()
     .sort((a, b) => b.composite - a.composite)
     .slice(0, MAX_BLIPS)
     .map((idea) => {
-      const sectorIndex = topicOrder.indexOf(idea.topic_id ?? -1)
-      // Spirale aurea dentro il settore: sparpaglia senza casualità.
-      const offset = sector * 0.08 + ((idea.id * 137.508) % (sector * 0.84))
-      const angle = sectorIndex * sector + offset
+      const index = sectorIndex.get(idea.profile ?? null) ?? 0
+      // Spirale aurea dentro lo spicchio: sparpaglia senza casualità, con un
+      // margine dai bordi perché un blip A CAVALLO di due temi mentirebbe.
+      const offset = width * 0.08 + ((idea.id * 137.508) % (width * 0.84))
+      const angle = index * width + offset
       const radius =
         R_MIN + (1 - Math.max(0, Math.min(1, idea.composite))) * (R_MAX - R_MIN)
-      const rad = ((angle - 90) * Math.PI) / 180
+      const { x, y } = pointAt(angle, radius)
       return {
         idea,
         angle,
-        x: CENTER + radius * Math.cos(rad),
-        y: CENTER + radius * Math.sin(rad),
+        x,
+        y,
         proposed: idea.status === 'proposed',
       }
     })

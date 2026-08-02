@@ -6,12 +6,19 @@ chiave il pannello deve spegnersi dicendo perché, non sembrare rotto.
 
 import httpx
 
-from app.appconfig import AppConfig, ProfileConfig, ScoringConfig
+from app.appconfig import AppConfig, ProfileConfig, ScoringConfig, VideosConfig
 from app.config import Settings
-from app.videos import cache_clear, search_params, trending_videos
+from app.embeddings import EmbeddingError, text_for_embedding
+from app.videos import (
+    Video,
+    cache_clear,
+    filter_relevant,
+    search_params,
+    trending_videos,
+)
 
 
-def _config() -> AppConfig:
+def _config(videos: VideosConfig | None = None) -> AppConfig:
     return AppConfig(
         sources=[],
         keywords=["ai"],
@@ -20,6 +27,9 @@ def _config() -> AppConfig:
             ProfileConfig(name="domotica", label="Domotica", keywords=["home assistant"]),
         ],
         scoring=ScoringConfig(weights={"heat": 1.0}, threshold=0.5),
+        # Nei test del pannello il filtro embedding resta spento: ha i suoi
+        # test dedicati sotto, con un embedder finto.
+        videos=videos or VideosConfig(min_similarity=0.0),
     )
 
 
@@ -178,3 +188,91 @@ def test_a_malformed_entry_is_skipped() -> None:
     )
 
     assert [v.video_id for v in result["videos"]] == ["buono"]
+
+
+# ---- filtro di pertinenza ----------------------------------------------------
+
+
+class _FakeEmbedder:
+    """Embedder deterministico: vettori decisi dal test, per testo."""
+
+    def __init__(self, mapping: dict[str, list[float]], fail: bool = False):
+        self.mapping = mapping
+        self.fail = fail
+
+    def embed_many(self, texts: list[str]) -> list[list[float] | None]:
+        if self.fail:
+            raise EmbeddingError("Ollama giù")
+        return [self.mapping.get(t) for t in texts]
+
+
+def _video(title: str, profile: str = "agenti", channel: str = "Canale Tech") -> Video:
+    return Video(
+        video_id=title[:8],
+        title=title,
+        channel=channel,
+        published_at="2026-07-26T10:00:00Z",
+        thumbnail="",
+        live=False,
+        profile=profile,
+    )
+
+
+def _filter_config() -> AppConfig:
+    return _config(videos=VideosConfig(min_similarity=0.5))
+
+
+def _mapping() -> dict[str, list[float]]:
+    return {
+        # I due temi: assi ortogonali.
+        text_for_embedding("ai agents"): [1.0, 0.0],
+        text_for_embedding("home assistant"): [0.0, 1.0],
+        # Titoli: uno centrato sul suo tema, uno lontano dal suo (la domotica
+        # è l'asse y: il vettore di Peppa Pig punta quasi tutto altrove).
+        text_for_embedding("Building AI agents from scratch"): [0.95, 0.05],
+        text_for_embedding("Peppa Pig Gets a BRAND NEW SMART TV"): [0.95, 0.1],
+    }
+
+
+def test_filtro_scarta_il_fuori_tema_e_tiene_il_pertinente() -> None:
+    videos = [
+        _video("Building AI agents from scratch"),
+        _video("Peppa Pig Gets a BRAND NEW SMART TV", profile="domotica"),
+    ]
+    kept, dropped = filter_relevant(
+        videos, _filter_config(), Settings(), _FakeEmbedder(_mapping())
+    )
+    assert [v.title for v in kept] == ["Building AI agents from scratch"]
+    assert dropped == 1
+
+
+def test_filtro_senza_ollama_tiene_tutto() -> None:
+    """Un pannello di contesto imperfetto è meglio di un pannello morto."""
+    videos = [_video("Peppa Pig Gets a BRAND NEW SMART TV", profile="domotica")]
+    kept, dropped = filter_relevant(
+        videos, _filter_config(), Settings(), _FakeEmbedder({}, fail=True)
+    )
+    assert len(kept) == 1
+    assert dropped == 0
+
+
+def test_filtro_non_giudicabile_non_e_colpevole() -> None:
+    """Vettore mancante per un titolo (o tema ignoto): il video resta."""
+    videos = [_video("Titolo mai embeddato"), _video("Altro", profile=None)]
+    kept, _ = filter_relevant(
+        videos, _filter_config(), Settings(), _FakeEmbedder(_mapping())
+    )
+    assert len(kept) == 2
+
+
+def test_blocklist_canali_lavora_anche_senza_embedding() -> None:
+    config = _config(
+        videos=VideosConfig(min_similarity=0.0, blocked_channels=["peppa pig"])
+    )
+    videos = [
+        _video("Un video qualsiasi", channel="Peppa Pig's Big Adventures"),
+        _video("Building AI agents from scratch"),
+    ]
+    kept, dropped = filter_relevant(videos, config, Settings(), None)
+    assert [v.channel for v in kept] == ["Canale Tech"]
+    assert dropped == 1
