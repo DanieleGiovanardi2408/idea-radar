@@ -187,6 +187,32 @@ class EnrichmentConfig(BaseModel):
     pypi_week_cap: float = 20_000.0
 
 
+class OutcomesConfig(BaseModel):
+    """Il radar che si valuta: verdetti sulle idee proposte in passato.
+
+    Un'idea promossa ad almeno ``horizon_days`` giorni fa viene giudicata
+    guardando l'engagement dei suoi item (solo fonti live-counter, dove il
+    delta è misurato) nella finestra successiva alla promozione.
+    """
+
+    # Giorni di attesa prima del giudizio: sotto, il "dopo" non è ancora
+    # abbastanza lungo per distinguere una pausa da una morte.
+    horizon_days: int = 30
+    # hit: la velocity dopo la promozione conserva almeno questa frazione di
+    # quella prima. La crescita fisiologicamente decelera: chiedere il 50%
+    # a un mese di distanza è già selettivo.
+    hit_ratio: float = 0.5
+    # miss: la velocity dopo è sotto questa frazione di quella prima E non
+    # sono arrivati item nuovi. Tra miss e hit: flat.
+    miss_ratio: float = 0.1
+    # Senza una velocity "prima" misurabile si giudica in assoluto: hit se
+    # nell'orizzonte l'idea ha guadagnato almeno tanto engagement così.
+    min_abs_gain: float = 25.0
+    # Ore minime tra la prima e l'ultima osservazione perché una velocity
+    # sia una misura e non rumore (stessa filosofia di heat_min_span_hours).
+    min_span_hours: float = 12.0
+
+
 class LifecycleConfig(BaseModel):
     """Ciclo di vita delle idee: l'archivio tiene il radar fresco."""
 
@@ -238,6 +264,7 @@ class AppConfig(BaseModel):
     throughput: ThroughputConfig = Field(default_factory=ThroughputConfig)
     enrichment: EnrichmentConfig = Field(default_factory=EnrichmentConfig)
     moves: MovesConfig = Field(default_factory=MovesConfig)
+    outcomes: OutcomesConfig = Field(default_factory=OutcomesConfig)
 
     def enabled_sources(self) -> list[SourceConfig]:
         return [s for s in self.sources if s.enabled]

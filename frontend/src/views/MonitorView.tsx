@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { AnimatedNumber } from '../components/motion'
+import { TrackRecord } from '../components/TrackRecord'
 import {
   EmptyState,
   ErrorNotice,
@@ -334,6 +335,8 @@ export function MonitorView() {
           </ul>
         </Panel>
       </div>
+
+      <TrackRecord />
 
       <RunHistory />
     </div>

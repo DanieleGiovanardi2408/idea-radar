@@ -178,3 +178,32 @@ export interface VideosOut {
   detail: string | null
   cached: boolean
 }
+
+/* Track record: il verdetto su una proposta passata, coi numeri che lo motivano. */
+export type OutcomeVerdict = 'hit' | 'flat' | 'miss' | 'na'
+
+export interface OutcomeIdeaOut {
+  idea_id: number
+  label: string
+  verdict: OutcomeVerdict
+  promoted_at: string
+  horizon_days: number
+  pre_velocity: number
+  post_velocity: number
+  gained: number
+  n_new_items: number
+  profile: string | null
+}
+
+export interface OutcomesOut {
+  counts: Record<OutcomeVerdict, number>
+  /** Idee con un verdetto vero (na escluse): il denominatore dello hit-rate. */
+  judgeable: number
+  hit_rate: number | null
+  by_profile: Record<string, Record<OutcomeVerdict, number>>
+  by_source: Record<string, Record<OutcomeVerdict, number>>
+  ideas: OutcomeIdeaOut[]
+  /** Proposte in attesa d'orizzonte, e quando matura il primo verdetto. */
+  pending: number
+  first_due: string | null
+}

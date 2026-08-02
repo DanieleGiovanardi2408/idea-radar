@@ -335,3 +335,15 @@ moves:
   # Tetto alle chiamate LLM per run (~7s l'una): chi resta fuori aspetta il
   # run successivo. 12 = ~90s aggiunti a un run nel caso peggiore.
   max_llm_calls_per_run: 12
+
+# Track record — verdetti sulle proposte passate (asse A del piano v2).
+# Orizzonte a 14 giorni (default: 30) finché l'archivio è giovane: i run sono
+# partiti a inizio luglio e con 30 nessuna proposta sarebbe ancora giudicabile.
+# Trade-off: verdetti più tempestivi ma severi con le crescite lente. Quando
+# l'archivio avrà più storia: rialzalo e rilancia `idea-radar outcomes --recompute`.
+outcomes:
+  horizon_days: 14
+#   hit_ratio: 0.5      # hit: il dopo conserva almeno questa frazione della velocity
+#   miss_ratio: 0.1     # miss: sotto questa frazione E senza item nuovi
+#   min_abs_gain: 25.0  # senza un "prima": hit da questo guadagno assoluto
+#   min_span_hours: 12.0

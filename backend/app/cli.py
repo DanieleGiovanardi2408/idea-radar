@@ -18,6 +18,7 @@ from app.healing import (
     regenerate_insights,
 )
 from app.models import Idea, IdeaStatus, Topic, utcnow
+from app.outcomes import compute_outcomes, outcomes_overview
 from app.pipeline import (
     execute_heal,
     execute_preview_rebuild,
@@ -37,6 +38,45 @@ app = typer.Typer(help="Idea Radar CLI")
 def hello() -> None:
     """Comando placeholder: verifica che la CLI funzioni."""
     typer.echo("Idea Radar CLI — pronto.")
+
+
+@app.command()
+def outcomes(
+    recompute: bool = typer.Option(
+        False,
+        "--recompute",
+        help="Rigiudica tutto da zero (dopo un cambio dei parametri di giudizio).",
+    ),
+    limit: int = typer.Option(20, help="Quante idee giudicate mostrare."),
+) -> None:
+    """Il track record del radar: verdetti sulle idee proposte in passato."""
+    init_db()
+    config = get_config()
+    with get_session() as session:
+        summary = compute_outcomes(session, config, recompute=recompute)
+        overview = outcomes_overview(session, config)
+
+    counts = overview["counts"]
+    typer.echo(
+        f"Giudicate ora: {summary['judged_now']} · "
+        f"in attesa d'orizzonte ({config.outcomes.horizon_days}g): {summary['pending']} · "
+        f"totale giudicate: {summary['total_judged']}"
+    )
+    if overview["first_due"] is not None and overview["pending"]:
+        typer.echo(f"Primo verdetto in attesa: matura il {overview['first_due']:%d/%m/%Y}")
+    typer.echo(
+        f"hit {counts['hit']} · flat {counts['flat']} · "
+        f"miss {counts['miss']} · non giudicabili {counts['na']}"
+    )
+    if overview["hit_rate"] is not None:
+        typer.echo(
+            f"Hit-rate: {overview['hit_rate']:.0%} su {overview['judgeable']} giudicabili"
+        )
+    for row in overview["ideas"][:limit]:
+        typer.echo(
+            f"  [{row['verdict']:>4}] {row['label'][:56]:<56} "
+            f"+{row['gained']:.0f} eng · {row['n_new_items']} item nuovi"
+        )
 
 
 def _stamp() -> str:

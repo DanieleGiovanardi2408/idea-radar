@@ -44,6 +44,7 @@ from app.models import (
     TopicStat,
     utcnow,
 )
+from app.outcomes import compute_outcomes
 from app.queries import latest_scores
 from app.runlock import run_lock
 from app.scoring import ScoreResult, absolute_engagement, keyword_fit, score_item
@@ -478,6 +479,12 @@ def run_pipeline(
         # esce dalle viste vive (e rientra da solo se un item la riattiva).
         _progress(session, run, phase="archivio idee stantie")
         archive_stale_ideas(session, config.lifecycle.archive_after_days)
+
+        # Il radar controlla le proprie previsioni: giudica le idee promosse
+        # abbastanza tempo fa (orizzonte completo). Solo query locali, veloce
+        # e idempotente — le già giudicate non si toccano.
+        _progress(session, run, phase="verdetti sulle proposte passate")
+        compute_outcomes(session, config)
 
         run.finished_at = utcnow()
         run.status = RunStatus.DONE

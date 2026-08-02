@@ -11,6 +11,7 @@ const backend = process.env.BACKEND_URL ?? 'http://localhost:8000'
 const BACKEND_ROUTES = [
   '/health',
   '/ideas',
+  '/outcomes',
   '/profiles',
   '/rhythm',
   '/runs',
@@ -18,6 +19,7 @@ const BACKEND_ROUTES = [
   '/trends',
   '/videos',
   '/stats',
+  '/yt',
 ]
 
 // https://vite.dev/config/

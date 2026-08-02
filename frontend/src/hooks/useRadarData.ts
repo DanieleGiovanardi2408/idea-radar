@@ -149,6 +149,11 @@ export function useTrends() {
   })
 }
 
+/** Il track record: verdetti sulle proposte passate. Cambia solo a fine run. */
+export function useOutcomes() {
+  return useQuery({ queryKey: ['outcomes'], queryFn: api.outcomes })
+}
+
 /** Storico run completo: si carica solo quando il Monitor lo apre. */
 export function useRuns(opts?: { enabled?: boolean }) {
   const running = useIsRunning()
@@ -211,6 +216,7 @@ export function useRunWatcher(): boolean {
       queryClient.invalidateQueries({ queryKey: ['trends'] })
       queryClient.invalidateQueries({ queryKey: ['idea'] })
       queryClient.invalidateQueries({ queryKey: ['runs'] })
+      queryClient.invalidateQueries({ queryKey: ['outcomes'] })
     }
     prev.current = running
   }, [running, queryClient])

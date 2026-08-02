@@ -1,6 +1,7 @@
 import type {
   IdeaDetailOut,
   IdeaOut,
+  OutcomesOut,
   PatchIdeaBody,
   ProfileOut,
   RhythmOut,
@@ -86,6 +87,7 @@ export const api = {
     return get<TopicOut[]>(`/topics${qs ? `?${qs}` : ''}`)
   },
   trends: () => get<TrendOut[]>('/trends'),
+  outcomes: () => get<OutcomesOut>('/outcomes'),
   stats: () => get<StatsOut>('/stats'),
   runs: () => get<RunOut[]>('/runs'),
   startRun: async (): Promise<{ started: boolean; detail: string }> => {

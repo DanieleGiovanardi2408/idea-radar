@@ -27,6 +27,7 @@ from app.config import get_settings
 from app.db import get_session, init_db
 from app.export import ideas_to_csv
 from app.models import Idea, IdeaStatus, Run, utcnow
+from app.outcomes import outcomes_overview
 from app.pipeline import execute_run
 from app.queries import (
     count_ideas,
@@ -280,6 +281,41 @@ def _idea_out(idea: Idea, score, model=IdeaOut):
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+class OutcomeIdeaOut(BaseModel):
+    idea_id: int
+    label: str
+    verdict: str
+    promoted_at: datetime
+    horizon_days: int
+    pre_velocity: float
+    post_velocity: float
+    gained: float
+    n_new_items: int
+    profile: str | None = None
+
+
+class OutcomesOut(BaseModel):
+    counts: dict[str, int]
+    judgeable: int
+    hit_rate: float | None = None
+    by_profile: dict[str, dict[str, int]]
+    by_source: dict[str, dict[str, int]]
+    ideas: list[OutcomeIdeaOut]
+    # Proposte in attesa d'orizzonte, e quando matura il primo verdetto.
+    pending: int = 0
+    first_due: datetime | None = None
+
+
+@app.get("/outcomes", response_model=OutcomesOut)
+def get_outcomes(session: Session = Depends(get_db)) -> OutcomesOut:
+    """Il track record del radar: com'è andata alle idee proposte in passato.
+
+    Sola lettura: i verdetti si calcolano in coda a ogni run (o con
+    ``idea-radar outcomes``); qui si aggregano. L'hit-rate esclude le ``na``.
+    """
+    return OutcomesOut(**outcomes_overview(session, get_config()))
 
 
 _YT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,20}$")

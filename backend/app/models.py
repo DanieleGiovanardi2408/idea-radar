@@ -154,6 +154,47 @@ class ItemStat(SQLModel, table=True):
     observed_at: datetime = Field(default_factory=utcnow)
 
 
+class OutcomeVerdict(str, Enum):
+    """Com'è andata un'idea DOPO che il radar l'ha proposta.
+
+    ``NA`` = non giudicabile: nessun item su fonti live-counter, quindi
+    nessun delta misurato su cui basare un verdetto onesto. Si salva comunque,
+    così il calcolo non la riesamina a ogni run.
+    """
+
+    HIT = "hit"  # ha continuato a crescere: il radar aveva ragione
+    FLAT = "flat"  # viva ma ferma
+    MISS = "miss"  # morta lì
+    NA = "na"  # non giudicabile (niente contatori vivi)
+
+
+class IdeaOutcome(SQLModel, table=True):
+    """Il verdetto su una previsione del radar, con i numeri che lo motivano.
+
+    Una riga per idea: il giudizio è ricalcolabile (``--recompute``) ma non
+    versionato — la storia che conta è già in ``scores`` e ``item_stats``,
+    questa tabella è la lettura che ne diamo oggi.
+    """
+
+    __tablename__ = "idea_outcomes"
+
+    idea_id: int = Field(foreign_key="ideas.id", primary_key=True)
+    # Il run in cui l'idea ha superato la soglia per la prima volta: il
+    # momento della "previsione", contro cui si giudica il dopo.
+    promoted_run_id: int = Field(foreign_key="runs.id")
+    promoted_at: datetime
+    horizon_days: int
+    verdict: OutcomeVerdict
+    # La motivazione, in numeri: engagement/giorno prima e dopo la promozione,
+    # quanto è cresciuto in totale nell'orizzonte, quanti item nuovi sono
+    # arrivati dopo. Il pannello li mostra: un verdetto senza numeri è un'opinione.
+    pre_velocity: float = 0.0
+    post_velocity: float = 0.0
+    gained: float = 0.0
+    n_new_items: int = 0
+    computed_at: datetime = Field(default_factory=utcnow)
+
+
 class TopicStat(SQLModel, table=True):
     """Fotografia di un topic in un run: serve a misurare i trend nel tempo."""
 

@@ -93,6 +93,44 @@ def test_ideas_filters(client: TestClient, session: Session) -> None:
     assert client.get("/ideas", params={"topic_id": 999}).json() == []
 
 
+def test_outcomes_endpoint_aggregates_track_record(
+    client: TestClient, session: Session
+) -> None:
+    from datetime import datetime
+
+    from app.models import IdeaOutcome, OutcomeVerdict
+
+    idea = _seed(session)
+    session.add(
+        IdeaOutcome(
+            idea_id=idea.id,
+            promoted_run_id=1,
+            promoted_at=datetime(2026, 6, 1),
+            horizon_days=30,
+            verdict=OutcomeVerdict.HIT,
+            pre_velocity=5.0,
+            post_velocity=4.0,
+            gained=120.0,
+            n_new_items=2,
+        )
+    )
+    session.commit()
+
+    data = client.get("/outcomes").json()
+    assert data["counts"]["hit"] == 1
+    assert data["judgeable"] == 1
+    assert data["hit_rate"] == 1.0
+    assert data["ideas"][0]["label"] == "Idea A"
+    assert data["ideas"][0]["verdict"] == "hit"
+
+
+def test_outcomes_endpoint_empty_track_record(client: TestClient) -> None:
+    data = client.get("/outcomes").json()
+    assert data["judgeable"] == 0
+    assert data["hit_rate"] is None
+    assert data["ideas"] == []
+
+
 def test_youtube_bridge_wraps_embed(client: TestClient) -> None:
     """La pagina-ponte incornicia l'embed e lascia passare solo i param noti."""
     res = client.get("/yt/dQw4w9WgXcQ", params={"autoplay": "1", "evil": "x"})
