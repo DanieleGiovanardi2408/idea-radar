@@ -19,6 +19,19 @@ from app.models import Idea, Item, Topic, TopicStat, utcnow
 
 logger = logging.getLogger(__name__)
 
+
+class LabelBudgetExceeded(Exception):
+    """Il namer dichiara esaurito il suo budget di tempo.
+
+    Alzata dal wrapper in ``pipeline._topic_namer`` quando la fase etichette
+    ha già speso più di ``clustering.label_budget_seconds``: il ciclo dei nomi
+    si ferma lì, coi topic restanti che tengono il nome vecchio. È la difesa
+    contro un Ollama conteso da un altro processo (misurato: un run fermo TRE
+    ORE in "raggruppamento in topic" perché ogni chiamata aspettava in coda
+    dietro le generazioni di un altro modello).
+    """
+
+
 # Margine del pre-filtro sui centroidi. Il centroide non DECIDE più il merge
 # (vedi ``attach_item_to_idea``), ma resta un indice economico: evita di
 # caricare gli embedding di tutte le idee per ogni item. Il centroide di un
@@ -384,6 +397,19 @@ def assign_ideas_to_topics(
             on_progress(f"nomi topic {done}/{len(to_name)}")
         try:
             topic.label = namer([m.label for m in members_by_topic[topic.id]])[:80]
+        except LabelBudgetExceeded as exc:
+            # Le etichette sono cosmetiche, il run no: con un Ollama conteso o
+            # lento si smette di rinominare per QUESTO run (i topic tengono il
+            # nome che avevano) invece di restare ore in "raggruppamento in
+            # topic". Successo o fallimento, al run dopo si riprova.
+            logger.warning(
+                "Etichette interrotte (%s): %d topic su %d restano col nome vecchio.",
+                exc,
+                len(to_name) - done + 1,
+                len(to_name),
+            )
+            session.add(topic)
+            break
         except Exception as exc:  # un naming fallito non deve fermare il run
             logger.warning("Naming del topic fallito: %s", exc)
         session.add(topic)

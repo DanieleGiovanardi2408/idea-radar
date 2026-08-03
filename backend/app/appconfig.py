@@ -78,6 +78,11 @@ class ClusteringConfig(BaseModel):
     # Sotto, eredita il titolo dell'idea che lo apre. E comunque si rinominano
     # solo i topic la cui composizione è cambiata: quelli fermi no.
     topic_label_min_ideas: int = 3
+    # Budget di TEMPO (secondi) per l'intera fase dei nomi in un run: esaurito,
+    # i topic restanti tengono il nome vecchio e si riprova al run dopo. Le
+    # etichette sono cosmetiche; senza budget, un Ollama conteso da un altro
+    # processo ha tenuto un run fermo tre ore su questa fase. 0 = senza limite.
+    label_budget_seconds: float = 300.0
 
 
 class ScoringConfig(BaseModel):

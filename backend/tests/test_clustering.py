@@ -6,6 +6,7 @@ from sqlmodel import Session, create_engine, select
 
 from app.clustering import (
     IdeaIndex,
+    LabelBudgetExceeded,
     _refresh_centroid,
     assign_ideas_to_topics,
     attach_item_to_idea,
@@ -599,3 +600,37 @@ def test_dissolving_is_idempotent(session: Session) -> None:
     assert primo["n_dissolved"] == 0  # la coppia non è un singleton
     assert secondo == primo
     assert len(session.exec(select(Topic)).all()) == 1
+
+
+def test_budget_etichette_esaurito_ferma_i_nomi_non_il_run(
+    session: Session,
+) -> None:
+    """Con Ollama conteso le etichette costano minuti l'una: oltre il budget si
+    smette di rinominare (i topic tengono il nome vecchio) e il run prosegue."""
+    # Due coppie di idee lontane tra loro: due topic da nominare.
+    for external_id, title, emb in [
+        ("1", "agente AI per il codice", [1.0, 0.0]),
+        ("2", "copilota per sviluppatori", [0.95, 0.3]),
+        ("3", "sensore per serre", [0.0, 1.0]),
+        ("4", "irrigazione smart", [0.3, 0.95]),
+    ]:
+        item = _item(session, external_id, title, emb)
+        attach_item_to_idea(session, item, emb, threshold=0.99)
+
+    chiamate = {"n": 0}
+
+    def namer_esaurito(labels: list[str]) -> str:
+        chiamate["n"] += 1
+        if chiamate["n"] == 1:
+            return "primo tema rinominato"
+        raise LabelBudgetExceeded("310s spesi, limite 300s")
+
+    topics = assign_ideas_to_topics(
+        session, threshold=0.8, namer=namer_esaurito, label_min_ideas=1
+    )
+
+    # Il run è arrivato in fondo, con UN topic rinominato e l'altro no.
+    assert len(topics) == 2
+    labels = {t.label for t in session.exec(select(Topic)).all()}
+    assert "primo tema rinominato" in labels
+    assert chiamate["n"] == 2  # dopo il budget non si insiste

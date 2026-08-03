@@ -15,6 +15,7 @@ from sqlmodel import Session, select
 from app.appconfig import AppConfig, get_config
 from app.clustering import (
     IdeaIndex,
+    LabelBudgetExceeded,
     assign_ideas_to_topics,
     attach_item_to_idea,
     group_items_by_similarity,
@@ -185,9 +186,33 @@ def _collect(
 
 
 def _topic_namer(config: AppConfig, ollama: OllamaClient | None):
+    """Il namer dei topic, con un budget di TEMPO sull'intera fase.
+
+    Ogni chiamata è misurata; superato ``clustering.label_budget_seconds`` la
+    successiva alza ``LabelBudgetExceeded`` e il ciclo dei nomi si ferma lì.
+    Un modello conteso (un altro processo che macina su Ollama) trasforma i
+    ~7s a etichetta in minuti l'una: senza budget il run resta appeso a una
+    fase puramente cosmetica.
+    """
     if not config.clustering.llm_topic_labels or ollama is None:
         return None
-    return lambda labels: ollama.topic_label(labels)
+    budget = config.clustering.label_budget_seconds
+    if budget <= 0:
+        return lambda labels: ollama.topic_label(labels)
+
+    spent = 0.0
+
+    def name(labels: list[str]) -> str:
+        nonlocal spent
+        if spent >= budget:
+            raise LabelBudgetExceeded(f"{spent:.0f}s spesi, limite {budget:.0f}s")
+        start = monotonic()
+        try:
+            return ollama.topic_label(labels)
+        finally:
+            spent += monotonic() - start
+
+    return name
 
 
 def _record_topic_stats(session: Session, run: Run) -> int:

@@ -353,5 +353,10 @@ outcomes:
 # contenuto virale fuori tema: il filtro confronta (embedding) il titolo del
 # video con le keyword del suo tema. Se Ollama non c'è, si tiene tutto.
 videos:
-  min_similarity: 0.4   # 0 = filtro spento; si tara guardando cosa scarta nel log
-  blocked_channels: []  # es. ["peppa pig"] — match per sottostringa, senza maiuscole
+  min_similarity: 0.4   # 0 = filtro spento; si tara guardando le similarità nel log
+  # Match per sottostringa, senza maiuscole. I canali di contenuto virale
+  # "smart qualcosa" sono semanticamente vicini alla domotica: l'embedding da
+  # solo non li distingue, la blocklist sì.
+  blocked_channels:
+    - new viral gadgets
+    - peppa pig

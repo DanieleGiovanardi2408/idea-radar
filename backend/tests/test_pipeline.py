@@ -304,3 +304,47 @@ def test_an_empty_run_does_not_flatten_the_trends(session: Session) -> None:
     ).one()
     assert after.avg_composite == pytest.approx(first.avg_composite)
     assert after.n_ideas == first.n_ideas
+
+
+def test_topic_namer_rispetta_il_budget_di_tempo(monkeypatch) -> None:
+    """Il cronometro è sull'INTERA fase: quando il tempo speso supera il
+    budget, la chiamata successiva alza LabelBudgetExceeded."""
+    from app.appconfig import AppConfig, ClusteringConfig, ScoringConfig
+    from app.clustering import LabelBudgetExceeded
+    from app.pipeline import _topic_namer
+
+    class _FakeOllama:
+        def topic_label(self, labels: list[str]) -> str:
+            return "un tema"
+
+    config = AppConfig(
+        scoring=ScoringConfig(weights={"heat": 1.0}, threshold=0.5),
+        clustering=ClusteringConfig(label_budget_seconds=10.0),
+    )
+    namer = _topic_namer(config, _FakeOllama())
+    assert namer is not None
+
+    # Prima chiamata: budget intatto, passa. Poi il tempo "vola" oltre il
+    # limite: la seconda deve fermare la fase.
+    clock = iter([0.0, 11.0, 11.0])
+    monkeypatch.setattr("app.pipeline.monotonic", lambda: next(clock))
+    assert namer(["a"]) == "un tema"
+    with pytest.raises(LabelBudgetExceeded):
+        namer(["b"])
+
+
+def test_topic_namer_budget_zero_significa_senza_limite() -> None:
+    from app.appconfig import AppConfig, ClusteringConfig, ScoringConfig
+    from app.pipeline import _topic_namer
+
+    class _FakeOllama:
+        def topic_label(self, labels: list[str]) -> str:
+            return "x"
+
+    config = AppConfig(
+        scoring=ScoringConfig(weights={"heat": 1.0}, threshold=0.5),
+        clustering=ClusteringConfig(label_budget_seconds=0.0),
+    )
+    namer = _topic_namer(config, _FakeOllama())
+    for _ in range(5):
+        assert namer(["a"]) == "x"

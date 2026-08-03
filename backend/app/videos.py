@@ -169,23 +169,29 @@ def filter_relevant(
 
     theme_vec = dict(zip(names, vectors[: len(names)], strict=True))
     survivors: list[Video] = []
+    judged: list[str] = []
     for video, vec in zip(kept, vectors[len(names) :], strict=True):
         anchor = theme_vec.get(video.profile or "")
         if vec is None or anchor is None:
             survivors.append(video)  # non giudicabile ≠ colpevole
             continue
         similarity = cosine(anchor, vec)
-        if similarity >= cfg.min_similarity:
+        tenuto = similarity >= cfg.min_similarity
+        # TUTTE le similarità nel log, non solo gli scarti: la soglia si tara
+        # guardando i numeri dei sopravvissuti, non indovinando.
+        judged.append(
+            f"{'✓' if tenuto else '✗'} {similarity:.2f} {video.title[:48]!r} [{video.profile}]"
+        )
+        if tenuto:
             survivors.append(video)
         else:
             dropped += 1
-            logger.info(
-                "Video fuori tema scartato (%.2f < %.2f): %r [%s]",
-                similarity,
-                cfg.min_similarity,
-                video.title[:60],
-                video.channel,
-            )
+    if judged:
+        logger.info(
+            "Pannello video, soglia %.2f:\n  %s",
+            cfg.min_similarity,
+            "\n  ".join(judged),
+        )
     return survivors, dropped
 
 
