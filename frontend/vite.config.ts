@@ -19,6 +19,7 @@ const BACKEND_ROUTES = [
   '/trends',
   '/videos',
   '/stats',
+  '/workspace',
   '/yt',
 ]
 

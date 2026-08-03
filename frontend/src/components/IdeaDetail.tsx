@@ -6,7 +6,13 @@ import {
   type ReactNode,
 } from 'react'
 import { useFocusTrap } from '../hooks/useFocusTrap'
-import { useIdea, useMarkSeen, usePatchIdea } from '../hooks/useRadarData'
+import {
+  useIdea,
+  useMarkSeen,
+  usePatchIdea,
+  useWorkspace,
+  useWorkspaceActions,
+} from '../hooks/useRadarData'
 import type { IdeaDetailOut } from '../types'
 import { dayMonthYear } from '../dates'
 import {
@@ -88,6 +94,12 @@ export function IdeaDetail({
   const { mutate: patchIdea } = usePatchIdea()
   const noteMutation = usePatchIdea()
   const { mutate: markSeen } = useMarkSeen()
+
+  // Sviluppo: sapere se QUESTA idea è già sul tavolo, e portarcela/toglierla.
+  const { data: workspaceEntries } = useWorkspace()
+  const workspaceActions = useWorkspaceActions()
+  const inWorkspace =
+    workspaceEntries?.some((e) => e.idea_id === ideaId) ?? false
 
   // Alla prima apertura del dettaglio il segnale è "visto": una sola PATCH
   // per apertura, il ref evita i reinvii ad ogni render.
@@ -280,6 +292,28 @@ export function IdeaDetail({
           <div className="flex shrink-0 items-center gap-1.5">
             {idea && (
               <>
+                {/* Sviluppa: porta l'idea sul tavolo di lavoro (vista Sviluppo).
+                    Le sue mosse diventano una checklist; togliere non cancella
+                    l'idea, solo il piano. */}
+                <button
+                  onClick={() =>
+                    inWorkspace
+                      ? workspaceActions.remove.mutate(ideaId)
+                      : workspaceActions.add.mutate(ideaId)
+                  }
+                  title={
+                    inWorkspace ? 'Togli dal tavolo Sviluppo' : 'Porta in Sviluppo'
+                  }
+                  aria-label={
+                    inWorkspace ? 'Togli dal tavolo Sviluppo' : 'Porta in Sviluppo'
+                  }
+                  aria-pressed={inWorkspace}
+                  className={`glass glass-hover rounded-xl px-2.5 py-2 font-display text-xs font-medium transition-colors ${
+                    inWorkspace ? 'text-phosphor' : 'text-slate-400 hover:text-phosphor'
+                  }`}
+                >
+                  {inWorkspace ? 'In sviluppo ✓' : 'Sviluppa'}
+                </button>
                 <button
                   onClick={() =>
                     patchIdea({ id: ideaId, body: { pinned: !idea.pinned } })

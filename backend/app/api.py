@@ -26,9 +26,10 @@ from app.appconfig import get_config
 from app.config import get_settings
 from app.db import get_session, init_db
 from app.export import ideas_to_csv
-from app.models import Idea, IdeaStatus, Run, utcnow
+from app.llm import OllamaClient, OllamaError
+from app.models import Idea, IdeaStatus, Run, WorkspaceEntry, WorkspaceStage, utcnow
 from app.outcomes import outcomes_overview
-from app.pipeline import execute_run
+from app.pipeline import _idea_signals, execute_run
 from app.queries import (
     count_ideas,
     idea_history,
@@ -43,6 +44,12 @@ from app.queries import (
 )
 from app.runlock import RunLockBusy, run_lock_busy
 from app.videos import trending_videos
+from app.workspace import (
+    WorkspaceError,
+    enter_workspace,
+    update_entry,
+    workspace_overview,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -281,6 +288,149 @@ def _idea_out(idea: Idea, score, model=IdeaOut):
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+class ChecklistItemOut(BaseModel):
+    text: str
+    done: bool
+
+
+class WorkspaceNewItemOut(BaseModel):
+    title: str
+    url: str | None = None
+    source: str
+    fetched_at: datetime | None = None
+
+
+class WorkspaceActivityOut(BaseModel):
+    n_new_items: int
+    gained_engagement: float
+    last_seen: datetime | None = None
+    # I 5 arrivi più recenti da quando segui l'idea: titoli, non conteggi.
+    new_items: list[WorkspaceNewItemOut] = []
+
+
+class WorkspaceEntryOut(BaseModel):
+    idea_id: int
+    label: str
+    summary: str | None = None
+    why_text: str | None = None
+    profile: str | None = None
+    stage: str
+    checklist: list[ChecklistItemOut]
+    links: list[str]
+    composite: float
+    composite_at_save: float
+    created_at: datetime
+    updated_at: datetime
+    activity: WorkspaceActivityOut
+
+
+class WorkspaceUpdate(BaseModel):
+    stage: WorkspaceStage | None = None
+    checklist: list[dict] | None = None
+    links: list[str] | None = None
+
+
+@app.get("/workspace", response_model=list[WorkspaceEntryOut])
+def list_workspace(session: Session = Depends(get_db)) -> list[WorkspaceEntryOut]:
+    """Il tavolo di lavoro: le idee in sviluppo, con l'attività dal radar."""
+    return [WorkspaceEntryOut(**row) for row in workspace_overview(session)]
+
+
+@app.post("/workspace/{idea_id}", response_model=WorkspaceEntryOut, status_code=201)
+def add_to_workspace(
+    idea_id: int, session: Session = Depends(get_db)
+) -> WorkspaceEntryOut:
+    """Porta un'idea in Sviluppo (idempotente: rientrare non azzera niente)."""
+    idea = session.get(Idea, idea_id)
+    if idea is None:
+        raise HTTPException(status_code=404, detail="Idea non trovata")
+    enter_workspace(session, idea)
+    row = next(r for r in workspace_overview(session) if r["idea_id"] == idea_id)
+    return WorkspaceEntryOut(**row)
+
+
+@app.patch("/workspace/{idea_id}", response_model=WorkspaceEntryOut)
+def update_workspace(
+    idea_id: int, payload: WorkspaceUpdate, session: Session = Depends(get_db)
+) -> WorkspaceEntryOut:
+    """Stadio, checklist e collegamenti: lo stato del TUO lavoro sull'idea."""
+    entry = session.get(WorkspaceEntry, idea_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Idea non in Sviluppo")
+    try:
+        update_entry(
+            session,
+            entry,
+            stage=payload.stage,
+            checklist=payload.checklist,
+            links=payload.links,
+        )
+    except WorkspaceError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    row = next(r for r in workspace_overview(session) if r["idea_id"] == idea_id)
+    return WorkspaceEntryOut(**row)
+
+
+@app.post("/workspace/{idea_id}/moves", response_model=WorkspaceEntryOut)
+def generate_workspace_moves(
+    idea_id: int, session: Session = Depends(get_db)
+) -> WorkspaceEntryOut:
+    """Genera le mosse per un'idea sul tavolo che non le ha ancora.
+
+    Le mosse nascono in pipeline solo per le idee sopra soglia; una portata in
+    Sviluppo le merita a prescindere — è l'utente a dire "questa conta". Il
+    costo è una chiamata LLM (secondi) dentro la richiesta: accettabile per
+    un'app locale, e la UI mostra l'attesa. Le mosse nuove entrano in coda
+    alla checklist senza toccare le spunte esistenti.
+    """
+    entry = session.get(WorkspaceEntry, idea_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Idea non in Sviluppo")
+    idea = session.get(Idea, idea_id)
+    if idea is None:
+        raise HTTPException(status_code=404, detail="Idea non trovata")
+
+    if not idea.moves_json:
+        score = latest_score_for(session, idea_id)
+        ollama = OllamaClient(get_settings())
+        try:
+            idea.moves_json = ollama.moves(
+                idea.label,
+                idea.summary or "",
+                score.why_text if score else "",
+                _idea_signals(idea),
+            )
+        except OllamaError as exc:
+            raise HTTPException(
+                status_code=503, detail=f"Ollama non disponibile: {exc}"
+            ) from exc
+        session.add(idea)
+
+    existing = {c["text"] for c in (entry.checklist_json or [])}
+    entry.checklist_json = (entry.checklist_json or []) + [
+        {"text": move, "done": False}
+        for move in idea.moves_json
+        if move not in existing
+    ]
+    entry.updated_at = utcnow()
+    session.add(entry)
+    session.commit()
+    row = next(r for r in workspace_overview(session) if r["idea_id"] == idea_id)
+    return WorkspaceEntryOut(**row)
+
+
+@app.delete("/workspace/{idea_id}", status_code=204)
+def remove_from_workspace(
+    idea_id: int, session: Session = Depends(get_db)
+) -> Response:
+    """Togli l'idea dal tavolo. L'idea nel radar non viene toccata."""
+    entry = session.get(WorkspaceEntry, idea_id)
+    if entry is not None:
+        session.delete(entry)
+        session.commit()
+    return Response(status_code=204)
 
 
 class OutcomeIdeaOut(BaseModel):

@@ -207,3 +207,49 @@ export interface OutcomesOut {
   pending: number
   first_due: string | null
 }
+
+/* Sviluppo: le idee salvate come piano di lavoro. Tabella dell'utente,
+   mai toccata dai run. */
+export type WorkspaceStage = 'explore' | 'building' | 'parked'
+
+export interface ChecklistItem {
+  text: string
+  done: boolean
+}
+
+export interface WorkspaceNewItem {
+  title: string
+  url: string | null
+  source: string
+  fetched_at: string | null
+}
+
+export interface WorkspaceActivity {
+  n_new_items: number
+  gained_engagement: number
+  last_seen: string | null
+  /** I 5 arrivi più recenti da quando segui l'idea: titoli, non conteggi. */
+  new_items: WorkspaceNewItem[]
+}
+
+export interface WorkspaceEntryOut {
+  idea_id: number
+  label: string
+  summary: string | null
+  why_text: string | null
+  profile: string | null
+  stage: WorkspaceStage
+  checklist: ChecklistItem[]
+  links: string[]
+  composite: number
+  composite_at_save: number
+  created_at: string
+  updated_at: string
+  activity: WorkspaceActivity
+}
+
+export interface WorkspacePatch {
+  stage?: WorkspaceStage
+  checklist?: ChecklistItem[]
+  links?: string[]
+}

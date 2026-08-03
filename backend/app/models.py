@@ -154,6 +154,37 @@ class ItemStat(SQLModel, table=True):
     observed_at: datetime = Field(default_factory=utcnow)
 
 
+class WorkspaceStage(str, Enum):
+    """A che punto sei TU con un'idea che hai deciso di sviluppare."""
+
+    EXPLORE = "explore"  # da esplorare: salvata, ancora da capire
+    BUILDING = "building"  # in sviluppo: ci stai lavorando
+    PARKED = "parked"  # parcheggiata: non ora, non mai
+
+
+class WorkspaceEntry(SQLModel, table=True):
+    """Un'idea portata sul tavolo di lavoro: il piano dell'UTENTE, non del radar.
+
+    Stessa regola di pin/dismiss: i run non toccano MAI questa tabella. Vive
+    separata da ``Idea`` perché lo stato di sviluppo è un altro dominio — il
+    radar osserva il mondo, qui si osserva il proprio lavoro.
+    """
+
+    __tablename__ = "workspace"
+
+    idea_id: int = Field(foreign_key="ideas.id", primary_key=True)
+    stage: WorkspaceStage = Field(default=WorkspaceStage.EXPLORE)
+    # Checklist: le mosse LLM diventano to-do spuntabili al momento
+    # dell'ingresso, più quelli aggiunti a mano. [{"text": str, "done": bool}]
+    checklist_json: list[dict] | None = Field(default=None, sa_column=Column(JSON))
+    # Collegamenti dell'utente: repo, note, prototipi. ["https://…", …]
+    links_json: list[str] | None = Field(default=None, sa_column=Column(JSON))
+    # Il punteggio al momento dell'ingresso: la baseline del "da quando la segui".
+    composite_at_save: float = 0.0
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
 class OutcomeVerdict(str, Enum):
     """Com'è andata un'idea DOPO che il radar l'ha proposta.
 

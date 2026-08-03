@@ -13,6 +13,7 @@ import {
   useRunWatcher,
   useStartRun,
   useStats,
+  useWorkspace,
   useTopics,
 } from './hooks/useRadarData'
 import { IdeaDetail } from './components/IdeaDetail'
@@ -21,6 +22,7 @@ import { SignalRhythm } from './components/SignalRhythm'
 import { TrendingVideos } from './components/TrendingVideos'
 import { MonitorView } from './views/MonitorView'
 import { RadarView } from './views/RadarView'
+import { SviluppoView } from './views/SviluppoView'
 import { TopicsView } from './views/TopicsView'
 import { TrendsView } from './views/TrendsView'
 
@@ -62,6 +64,7 @@ function App() {
   // Stessi parametri di default della vista Topic, così il contatore nella nav
   // dice lo stesso numero della lista (e riusa la cache invece di rifetchare).
   const { data: topics } = useTopics({ minIdeas: 2, orderBy: 'n_ideas' })
+  const { data: workspace } = useWorkspace()
   // Montato una volta sola: al passaggio running → done invalida le risorse.
   const running = useRunWatcher()
 
@@ -93,6 +96,7 @@ function App() {
   const counts: Record<string, number | undefined> = {
     '/radar': ideas?.total,
     '/topics': topics?.length,
+    '/sviluppo': workspace?.length,
   }
 
   const onStartRun = () => {
@@ -218,6 +222,7 @@ function App() {
                 element={<TopicsView onSelect={openIdea} />}
               />
               <Route path="/trends" element={<TrendsView />} />
+              <Route path="/sviluppo" element={<SviluppoView />} />
               <Route path="/monitor" element={<MonitorView />} />
               <Route path="*" element={<Navigate to="/radar" replace />} />
             </Routes>

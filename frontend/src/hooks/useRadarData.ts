@@ -14,7 +14,13 @@ import {
 } from '@tanstack/react-query'
 import { api } from '../api'
 import type { IdeaPage } from '../api'
-import type { IdeaDetailOut, IdeaOut, PatchIdeaBody, StatsOut } from '../types'
+import type {
+  IdeaDetailOut,
+  IdeaOut,
+  PatchIdeaBody,
+  StatsOut,
+  WorkspacePatch,
+} from '../types'
 
 const LIVE_MS = 2000
 
@@ -152,6 +158,42 @@ export function useTrends() {
 /** Il track record: verdetti sulle proposte passate. Cambia solo a fine run. */
 export function useOutcomes() {
   return useQuery({ queryKey: ['outcomes'], queryFn: api.outcomes })
+}
+
+/** Il tavolo di lavoro: le idee in Sviluppo, con l'attività dal radar. */
+export function useWorkspace() {
+  return useQuery({ queryKey: ['workspace'], queryFn: api.workspace })
+}
+
+/** Le tre azioni del tavolo. Ognuna invalida la lista: lo stato del proprio
+ *  lavoro deve essere sempre quello vero, non una cache ottimista. */
+export function useWorkspaceActions() {
+  const queryClient = useQueryClient()
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: ['workspace'] })
+  const add = useMutation({
+    mutationFn: (ideaId: number) => api.addToWorkspace(ideaId),
+    onSuccess: invalidate,
+  })
+  const patch = useMutation({
+    mutationFn: ({ ideaId, body }: { ideaId: number; body: WorkspacePatch }) =>
+      api.patchWorkspace(ideaId, body),
+    onSuccess: invalidate,
+  })
+  const remove = useMutation({
+    mutationFn: (ideaId: number) => api.removeFromWorkspace(ideaId),
+    onSuccess: invalidate,
+  })
+  // Genera le mosse per un'idea che non le ha: una chiamata LLM (secondi),
+  // quindi chi la usa mostra lo stato di attesa. Aggiorna anche il dossier.
+  const generateMoves = useMutation({
+    mutationFn: (ideaId: number) => api.generateWorkspaceMoves(ideaId),
+    onSuccess: (_data, ideaId) => {
+      invalidate()
+      queryClient.invalidateQueries({ queryKey: ['idea', ideaId] })
+    },
+  })
+  return { add, patch, remove, generateMoves }
 }
 
 /** Storico run completo: si carica solo quando il Monitor lo apre. */

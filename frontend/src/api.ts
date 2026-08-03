@@ -10,6 +10,8 @@ import type {
   TopicOut,
   TrendOut,
   VideosOut,
+  WorkspaceEntryOut,
+  WorkspacePatch,
 } from './types'
 
 /** Base URL dell'API: vuota su web (il proxy Vite rende tutto same-origin),
@@ -88,6 +90,35 @@ export const api = {
   },
   trends: () => get<TrendOut[]>('/trends'),
   outcomes: () => get<OutcomesOut>('/outcomes'),
+  workspace: () => get<WorkspaceEntryOut[]>('/workspace'),
+  addToWorkspace: async (ideaId: number): Promise<WorkspaceEntryOut> => {
+    const res = await fetch(`${BASE}/workspace/${ideaId}`, { method: 'POST' })
+    if (!res.ok) throw new Error(`HTTP ${res.status} su /workspace/${ideaId}`)
+    return res.json()
+  },
+  patchWorkspace: async (
+    ideaId: number,
+    body: WorkspacePatch,
+  ): Promise<WorkspaceEntryOut> => {
+    const res = await fetch(`${BASE}/workspace/${ideaId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status} su /workspace/${ideaId}`)
+    return res.json()
+  },
+  generateWorkspaceMoves: async (ideaId: number): Promise<WorkspaceEntryOut> => {
+    const res = await fetch(`${BASE}/workspace/${ideaId}/moves`, {
+      method: 'POST',
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status} su /workspace/${ideaId}/moves`)
+    return res.json()
+  },
+  removeFromWorkspace: async (ideaId: number): Promise<void> => {
+    const res = await fetch(`${BASE}/workspace/${ideaId}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error(`HTTP ${res.status} su /workspace/${ideaId}`)
+  },
   stats: () => get<StatsOut>('/stats'),
   runs: () => get<RunOut[]>('/runs'),
   startRun: async (): Promise<{ started: boolean; detail: string }> => {
