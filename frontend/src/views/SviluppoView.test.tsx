@@ -170,4 +170,24 @@ describe('SviluppoView', () => {
       ).toBe(true)
     })
   })
+
+  it('mosse generiche (422): non manda a controllare Ollama', async () => {
+    /* Il 422 dice che Ollama HA risposto e la validazione ha scartato: il
+       messaggio "Ollama è acceso?" manderebbe a cercare il guasto dove non c'è. */
+    mockFetch({
+      '/workspace/1/moves': new Response(
+        JSON.stringify({ detail: 'Il modello non ha prodotto mosse specifiche' }),
+        { status: 422 },
+      ),
+      '/workspace': [entry({ checklist: [] })],
+    })
+    renderWithProviders(<SviluppoView />)
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Genera le mosse/ }),
+    )
+
+    expect(await screen.findByText(/passe-partout/)).toBeInTheDocument()
+    expect(screen.queryByText(/Ollama è acceso/)).not.toBeInTheDocument()
+  })
 })

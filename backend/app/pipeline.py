@@ -27,6 +27,7 @@ from app.enrich import PyPIStatsEnricher
 from app.healing import heal_ideas
 from app.lifecycle import archive_stale_ideas
 from app.llm import (
+    GenerationRejected,
     IdeaInsight,
     OllamaClient,
     OllamaError,
@@ -295,6 +296,7 @@ def _moves_phase(
     config: AppConfig,
     ollama: OllamaClient,
     on_progress: Callable[[str], None] | None,
+    embedder: OllamaEmbedder | None = None,
 ) -> None:
     """Le "mosse" per le idee sopra soglia di QUESTO run: il cosa fartene.
 
@@ -303,6 +305,12 @@ def _moves_phase(
     ci riprova il run dopo); a differenza loro NON ha fallback euristico: una
     mossa passe-partout è rumore travestito da consiglio. Budget di chiamate
     per run: le idee oltre il tetto aspettano il giro successivo.
+
+    Due modi di non produrre niente, e vanno tenuti distinti: se Ollama è giù
+    la fase si ferma (è giù per tutti), se invece risponde e la risposta viene
+    *bocciata* dalla validazione si va avanti con le altre idee — quella lì
+    resta a NULL e ritenta al run dopo. L'``embedder`` serve solo al controllo
+    di coerenza dell'angolo; senza, quel controllo non c'è.
     """
     if not config.moves.enabled:
         return
@@ -326,20 +334,42 @@ def _moves_phase(
         if on_progress is not None:
             on_progress(f"mosse per «{idea.label[:60]}»")
         args = (idea.label, idea.summary or "", score.why_text or "", _idea_signals(idea))
+        spent_before = getattr(ollama, "calls_made", 0)
         try:
             if wants_moves:
-                idea.moves_json = ollama.moves(*args)
-                budget -= 1
-            if wants_angle and budget > 0:
-                idea.angle_text = ollama.business_angle(*args)
-                budget -= 1
+                idea.moves_json = ollama.moves(
+                    *args, generic_patterns=config.moves.generic_patterns
+                )
+            if wants_angle and _spend(budget, ollama, spent_before) > 0:
+                idea.angle_text = ollama.business_angle(
+                    *args,
+                    embedder=embedder,
+                    min_similarity=config.moves.angle_min_similarity,
+                )
+        except GenerationRejected as exc:
+            # Il modello ha risposto, ma diceva cose che valgono per qualsiasi
+            # idea (o, per l'angolo, per un'altra). Meglio niente: si prosegue
+            # con le idee successive, questa ritenta al prossimo run.
+            logger.info("Generazione scartata per «%s»: %s", idea.label[:60], exc)
         except OllamaError as exc:
             # Ollama giù o risposta illeggibile: si lascia NULL e si smette di
             # insistere per questo run — se è giù per uno, è giù per tutti.
             logger.warning("Mosse non generate (%s): riproverà al prossimo run.", exc)
             break
+        finally:
+            budget = _spend(budget, ollama, spent_before)
         session.add(idea)
         session.commit()
+
+
+def _spend(budget: int, ollama: OllamaClient, spent_before: int) -> int:
+    """Budget residuo dopo le chiamate fatte da ``spent_before`` in poi.
+
+    Il contatore sta sul client perché una generazione bocciata ne costa due, e
+    un tetto pensato per contenere il tempo di un run deve contare i secondi
+    veri. Il minimo di 1 tiene onesti i doppi dei test, che non contano nulla.
+    """
+    return budget - max(1, getattr(ollama, "calls_made", 0) - spent_before)
 
 
 def _embed_phase(
@@ -498,7 +528,7 @@ def run_pipeline(
         # Le mosse arrivano DOPO lo scoring (sopra soglia si sa solo adesso)
         # e prima dell'archiviazione: il "cosa fartene" delle idee di oggi.
         avanzamento.force(session, run, phase="mosse per le idee sopra soglia")
-        _moves_phase(session, run, config, ollama, on_progress)
+        _moves_phase(session, run, config, ollama, on_progress, embedder)
 
         # Ciclo di vita in coda al run: chi non porta segnali da troppo tempo
         # esce dalle viste vive (e rientra da solo se un item la riattiva).

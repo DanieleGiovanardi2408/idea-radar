@@ -333,8 +333,28 @@ moves:
   # Quante idee in cima (per composite del run) ricevono anche l'angolo.
   angle_top_n: 5
   # Tetto alle chiamate LLM per run (~7s l'una): chi resta fuori aspetta il
-  # run successivo. 12 = ~90s aggiunti a un run nel caso peggiore.
+  # run successivo. Conta le chiamate VERE, rigenerazioni comprese, quindi
+  # nel caso peggiore il tempo aggiunto resta questo. 12 = ~90s.
   max_llm_calls_per_run: 12
+  # Validazione DOPO la generazione (asse B del piano v2): il divieto nel
+  # prompt non basta, il 7B ricopia gli esempi del prompt alla lettera.
+  #
+  # generic_patterns: regex (senza maiuscole) che riconoscono una mossa
+  # passe-partout. Chi matcha viene tolto; se non sopravvive nulla si rigenera
+  # UNA volta con l'elenco delle scartate nel prompt, poi l'idea resta senza
+  # (meglio di mosse finte). Se la chiave è assente valgono i default di
+  # app/llm.py: "monitora gli sviluppi", "approfondisci", "valuta l'uso", gli
+  # esempi del prompt nudi… Per aggiungerne, ricopiare i default e allungare
+  # la lista; una lista vuota disattiva il controllo. Le scartate finiscono
+  # nel log: è lì che si vede se un pattern sta prendendo troppo.
+  # generic_patterns:
+  #   - "\\b(segui|monitora)\\w*\\s+(gli|lo)?\\s*svilupp"
+  #
+  # Similarità coseno minima tra l'angolo di business generato e il testo
+  # dell'idea: sotto, l'angolo parla d'altro (le "agenzie di viaggio" per un
+  # modello GGUF) e si riprova una volta sola. 0 = spento. Si tara leggendo le
+  # similarità nel log, come la soglia dei video.
+  angle_min_similarity: 0.35
 
 # Track record — verdetti sulle proposte passate (asse A del piano v2).
 # Orizzonte a 14 giorni (default: 30) finché l'archivio è giovane: i run sono

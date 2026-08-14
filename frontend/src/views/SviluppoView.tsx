@@ -9,6 +9,7 @@
 
 import { useState, type KeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
+import { ApiError } from '../api'
 import { Badge, EmptyState, ErrorNotice, IconX, Panel } from '../components/ui'
 import { useWorkspace, useWorkspaceActions } from '../hooks/useRadarData'
 import type { WorkspaceEntryOut, WorkspaceStage } from '../types'
@@ -121,7 +122,10 @@ function Checklist({ entry }: { entry: WorkspaceEntryOut }) {
       )}
       {generateMoves.isError && (
         <p className="mt-1.5 text-[11px] text-flare">
-          Non ci sono riuscito: Ollama è acceso?
+          {generateMoves.error instanceof ApiError &&
+          generateMoves.error.status === 422
+            ? 'Il modello ha risposto solo con mosse passe-partout: le ho scartate. Riprova.'
+            : 'Non ci sono riuscito: Ollama è acceso?'}
         </p>
       )}
       <ul className="mt-1.5 space-y-1">

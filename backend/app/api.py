@@ -26,7 +26,7 @@ from app.appconfig import get_config
 from app.config import get_settings
 from app.db import get_session, init_db
 from app.export import ideas_to_csv
-from app.llm import OllamaClient, OllamaError
+from app.llm import GenerationRejected, OllamaClient, OllamaError
 from app.models import Idea, IdeaStatus, Run, WorkspaceEntry, WorkspaceStage, utcnow
 from app.outcomes import outcomes_overview
 from app.pipeline import _idea_signals, execute_run
@@ -408,7 +408,16 @@ def generate_workspace_moves(
                 idea.summary or "",
                 score.why_text if score else "",
                 _idea_signals(idea),
+                generic_patterns=get_config().moves.generic_patterns,
             )
+        except GenerationRejected as exc:
+            # Il modello ha risposto solo passe-partout, due volte. Non è un
+            # guasto (503 mentirebbe): la richiesta è andata a buon fine e la
+            # risposta non era pubblicabile. La UI lo dice e si può ritentare.
+            raise HTTPException(
+                status_code=422,
+                detail=f"Il modello non ha prodotto mosse specifiche: {exc}",
+            ) from exc
         except OllamaError as exc:
             raise HTTPException(
                 status_code=503, detail=f"Ollama non disponibile: {exc}"

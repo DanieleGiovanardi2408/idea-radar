@@ -28,10 +28,17 @@ class FakeOllama:
     def topic_label(self, labels: list[str]) -> str:
         return "topic di prova"
 
-    def moves(self, label: str, summary: str, why: str, signals: str) -> list[str]:
+    def moves(
+        self, label: str, summary: str, why: str, signals: str, **kwargs
+    ) -> list[str]:
+        # **kwargs: la validazione (generic_patterns, embedder, soglia) arriva
+        # come argomenti a parola chiave. Un doppio che li elenca uno per uno
+        # va aggiornato ogni volta che se ne aggiunge uno; questo no.
         return [f"sfrutta {label}"]
 
-    def business_angle(self, label: str, summary: str, why: str, signals: str) -> str:
+    def business_angle(
+        self, label: str, summary: str, why: str, signals: str, **kwargs
+    ) -> str:
         return f"angolo per {label}"
 
 

@@ -66,6 +66,27 @@ Tre interventi, in ordine di resa:
 
 Upgrade del modello (14B) resta un knob dell'utente, non un requisito.
 
+**Aggiornamento 14 agosto — fatto, con una correzione al punto 1.** La
+validazione delle mosse non rigenera al primo sospetto: le passe-partout
+vengono *tolte* e, se ne resta almeno una buona, quella basta — rigenerare
+per riscrivere due mosse già valide costerebbe sette secondi. La
+rigenerazione (una sola, con l'elenco delle scartate dentro il prompt) scatta
+quando non sopravvive niente; alla seconda bocciatura l'idea resta senza. Il
+rifiuto è un'eccezione a sé, `GenerationRejected`, e la distinzione conta più
+di quanto sembri: se Ollama è giù la fase si ferma (è giù per tutti), se la
+risposta è generica si prosegue con le altre idee. Stessa logica sull'API:
+503 quando Ollama non c'è, 422 quando ha risposto male — la UI dice due cose
+diverse invece di mandare a controllare Ollama in entrambi i casi.
+
+Il budget della fase ora conta le chiamate *vere* e non le idee: da quando una
+generazione può costarne due, un tetto che contava le idee non conteneva più i
+secondi che doveva contenere.
+
+Coerenza dell'angle e few-shot: come previsti. Le soglie
+(`moves.angle_min_similarity`, `moves.generic_patterns`) stanno in
+config.yaml, e ogni scarto finisce nel log con la sua similarità — si tarano
+guardando i numeri, come la soglia dei video.
+
 ## Asse C — Il radar e i video con un senso
 
 **Lo scope deve informare, non solo scenografia.** Oggi la distanza dal

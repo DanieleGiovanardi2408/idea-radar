@@ -11,6 +11,11 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
+# I default dei pattern stanno accanto ai prompt che li rendono necessari
+# (app.llm), non qui: questo modulo li espone alla config. Nessun ciclo —
+# app.llm dipende solo da config/models.
+from app.llm import DEFAULT_GENERIC_MOVE_PATTERNS
+
 # Come DATA_DIR in db.py: l'app desktop punta a una copia utente del config
 # (modificabile e persistente), il default resta il file accanto al codice.
 CONFIG_PATH = Path(
@@ -167,8 +172,20 @@ class MovesConfig(BaseModel):
     # business, oltre alle mosse. È la parte più costosa e più letta: poche.
     angle_top_n: int = 5
     # Tetto alle chiamate LLM della fase per run (~7s l'una): le idee oltre il
-    # budget restano a NULL e vengono riprese al run successivo.
+    # budget restano a NULL e vengono riprese al run successivo. Conta le
+    # chiamate *vere*, rigenerazioni comprese.
     max_llm_calls_per_run: int = 12
+    # Regex (case-insensitive) che riconoscono una mossa passe-partout: chi
+    # matcha viene tolto, e se non sopravvive niente si rigenera una volta
+    # sola. Vuoto = si usano i default di llm.py; una lista qui li sostituisce.
+    generic_patterns: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_GENERIC_MOVE_PATTERNS)
+    )
+    # Similarità coseno minima tra l'angolo di business generato e il testo
+    # dell'idea: sotto, l'angolo sta parlando d'altro e si riprova una volta.
+    # 0 = controllo spento. Si tara leggendo le similarità nel log, come la
+    # soglia dei video.
+    angle_min_similarity: float = 0.35
 
 
 class EnrichmentConfig(BaseModel):

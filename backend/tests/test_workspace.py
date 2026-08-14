@@ -138,7 +138,7 @@ def test_generate_moves_on_demand(
     class _FakeOllama:
         def __init__(self, settings) -> None: ...
 
-        def moves(self, label, summary, why, signals) -> list[str]:
+        def moves(self, label, summary, why, signals, **kwargs) -> list[str]:
             return ["Costruisci il prototipo", "Scrivi il confronto"]
 
     monkeypatch.setattr("app.api.OllamaClient", _FakeOllama)
@@ -177,7 +177,7 @@ def test_generate_moves_says_503_without_ollama(
     class _DownOllama:
         def __init__(self, settings) -> None: ...
 
-        def moves(self, *args) -> list[str]:
+        def moves(self, *args, **kwargs) -> list[str]:
             raise OllamaError("connessione rifiutata")
 
     monkeypatch.setattr("app.api.OllamaClient", _DownOllama)
@@ -186,6 +186,27 @@ def test_generate_moves_says_503_without_ollama(
     res = client.post(f"/workspace/{idea.id}/moves")
     assert res.status_code == 503
     assert "Ollama" in res.json()["detail"]
+
+
+def test_generic_moves_are_a_422_not_a_503(
+    client: TestClient, session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ollama ha risposto: dire "non disponibile" manderebbe a cercare il guasto
+    dalla parte sbagliata. La richiesta è riuscita, la risposta non era buona."""
+    from app.llm import GenerationRejected
+
+    class _GenericOllama:
+        def __init__(self, settings) -> None: ...
+
+        def moves(self, *args, **kwargs) -> list[str]:
+            raise GenerationRejected("solo passe-partout")
+
+    monkeypatch.setattr("app.api.OllamaClient", _GenericOllama)
+    idea = _idea(session)
+    client.post(f"/workspace/{idea.id}")
+    res = client.post(f"/workspace/{idea.id}/moves")
+    assert res.status_code == 422
+    assert "specifiche" in res.json()["detail"]
 
 
 # ---- endpoint ----------------------------------------------------------------

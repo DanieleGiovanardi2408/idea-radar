@@ -20,6 +20,18 @@ import type {
 export const API_BASE: string = import.meta.env.VITE_API_BASE ?? ''
 const BASE = API_BASE
 
+/** Un errore HTTP che si porta dietro lo stato: serve dove la UI deve dire
+ *  cose diverse a seconda del codice, invece di un unico "non ha funzionato". */
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(BASE + path)
   if (!res.ok) throw new Error(`HTTP ${res.status} su ${path}`)
@@ -112,7 +124,14 @@ export const api = {
     const res = await fetch(`${BASE}/workspace/${ideaId}/moves`, {
       method: 'POST',
     })
-    if (!res.ok) throw new Error(`HTTP ${res.status} su /workspace/${ideaId}/moves`)
+    // L'unico endpoint che distingue due fallimenti diversi, e l'utente deve
+    // vederli diversi: 503 = Ollama giù (accendilo), 422 = ha risposto ma solo
+    // mosse passe-partout, scartate dalla validazione (riprova, o è l'idea che
+    // non si presta). Dire "Ollama è acceso?" nel secondo caso manda a cercare
+    // il guasto dove non c'è.
+    if (!res.ok) {
+      throw new ApiError(res.status, `HTTP ${res.status} su /workspace/${ideaId}/moves`)
+    }
     return res.json()
   },
   removeFromWorkspace: async (ideaId: number): Promise<void> => {
