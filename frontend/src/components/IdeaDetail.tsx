@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from 'react'
 import { useFocusTrap } from '../hooks/useFocusTrap'
+import { IdeaVideos } from './IdeaVideos'
 import {
   useIdea,
   useMarkSeen,
@@ -433,6 +434,14 @@ export function IdeaDetail({
                 )}
               </Section>
             )}
+
+            {/* Il radar dice cosa sta salendo; questo dice se qualcuno lo sta
+                già raccontando — e "nessuno" è un'informazione, non un vuoto.
+                `key` sull'id: cambiando idea la richiesta torna da autorizzare,
+                altrimenti il dossier successivo spenderebbe quota da solo. */}
+            <Section label="Se ne parla" delayMs={105}>
+              <IdeaVideos key={idea.id} ideaId={idea.id} />
+            </Section>
 
             <Section label="KPI" delayMs={120}>
               <div className="grid gap-2.5">

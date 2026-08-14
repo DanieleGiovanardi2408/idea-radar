@@ -118,6 +118,25 @@
   }
 }
 
+/* L'eco di un contatto nuovo: un anello che si allarga e svanisce quando la
+   spazzata passa sopra un blip entrato nell'ultimo run. Stesso periodo e stesso
+   delay del lampo, così l'eco parte dal passaggio e non a caso: il radar deve
+   far percepire il NUOVO, che è il suo mestiere.
+
+   Scala e non `r`: il raggio come proprietà CSS non è animabile ovunque, e
+   questo gira anche dentro la webview dell'app desktop. */
+@keyframes blip-echo {
+  0% {
+    transform: scale(0.5);
+    opacity: 0.9;
+  }
+  22%,
+  100% {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+
 @keyframes fade-up {
   from {
     opacity: 0;

@@ -107,6 +107,23 @@ cosa specifica"), con la stessa cache 15 minuti.
 **Novità visibili.** I blip entrati nell'ultimo run pulsano diversi per un
 giro di sweep: il radar deve far percepire il *nuovo*, che è il suo mestiere.
 
+**Aggiornamento 14 agosto — fatti anche gli ultimi due pezzi.** *Video per
+idea*: endpoint proprio (`/ideas/{id}/videos`), ricerca sul label, stessa cache
+di 15 minuti — ma **non parte all'apertura del dossier**. Una ricerca costa 100
+unità delle 10.000 quotidiane e un dossier si apre molte più volte di quante i
+video interessino: la spesa la autorizza un click. Il filtro di pertinenza è lo
+stesso codice del pannello, con un ancoraggio solo (il label invece delle
+keyword del tema) — se il titolo non somiglia a ciò che si è cercato, YouTube
+ha risposto d'altro. E "nessuno ne parla" viene scritto come informazione, non
+lasciato come vuoto: per un'idea in salita è esattamente il punto.
+
+*Novità visibili*: `first_seen` dopo l'inizio dell'ultimo run = contatto nuovo,
+e il blip si porta un'eco che si allarga quando la spazzata gli passa sopra —
+stesso periodo e stesso delay del lampo, così parte dal passaggio. La freschezza
+si calcola in `radarGeometry.ts` con i suoi test, e finisce anche nel nome
+accessibile del blip: un'animazione, per chi usa uno screen reader, non esiste.
+Legenda solo quando c'è almeno un contatto nuovo.
+
 ## Asse D — "Sviluppo": le idee salvate diventano un piano di lavoro
 
 Oggi il pin è un segnalibro. La vista nuova ("Sviluppo") lo trasforma in un

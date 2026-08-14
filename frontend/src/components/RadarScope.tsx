@@ -36,6 +36,7 @@ export function RadarScope({
   onSelect,
   profiles = [],
   activeProfile = null,
+  freshSince = null,
 }: {
   ideas: IdeaOut[]
   onSelect: (id: number) => void
@@ -43,13 +44,18 @@ export function RadarScope({
   profiles?: { name: string; label: string }[]
   /** Tema selezionato nel filtro: il suo spicchio si accende. */
   activeProfile?: string | null
+  /** Inizio dell'ultimo run: i blip nati dopo sono contatti nuovi. */
+  freshSince?: string | null
 }) {
   const order = useMemo(() => profiles.map((p) => p.name), [profiles])
   const labelOf = useMemo(
     () => new Map(profiles.map((p) => [p.name, p.label])),
     [profiles],
   )
-  const blips = useMemo(() => blipsFor(ideas, order), [ideas, order])
+  const blips = useMemo(
+    () => blipsFor(ideas, order, freshSince),
+    [ideas, order, freshSince],
+  )
   const sectors = useMemo(() => sectorsFor(ideas, order), [ideas, order])
   const [hover, setHover] = useState<Blip | null>(null)
   const proposedCount = ideas.filter((i) => i.status === 'proposed').length
@@ -275,7 +281,9 @@ export function RadarScope({
               tabIndex={indice === attivo ? 0 : -1}
               aria-label={`${blip.idea.label} — punteggio ${Math.round(
                 blip.idea.composite * 100,
-              )}${blip.proposed ? ', sopra soglia' : ''}`}
+              )}${blip.proposed ? ', sopra soglia' : ''}${
+                blip.fresh ? ', nuova in questo run' : ''
+              }`}
               style={
                 {
                   animation: `blip-flash ${SWEEP_SECONDS}s linear infinite`,
@@ -308,6 +316,26 @@ export function RadarScope({
                   stroke="var(--color-phosphor)"
                   strokeWidth="1.5"
                   strokeDasharray="3 2"
+                />
+              )}
+              {/* L'eco del contatto nuovo: parte quando la spazzata gli passa
+                  sopra (stesso delay del lampo) e si allarga una volta per
+                  giro. È l'unica cosa che si muove diversamente dalle altre —
+                  se lo facessero tutti non direbbe più niente. */}
+              {blip.fresh && (
+                <circle
+                  cx={blip.x}
+                  cy={blip.y}
+                  r="4"
+                  fill="none"
+                  stroke="var(--color-phosphor)"
+                  strokeWidth="1.2"
+                  style={{
+                    transformBox: 'fill-box',
+                    transformOrigin: 'center',
+                    animation: `blip-echo ${SWEEP_SECONDS}s ease-out infinite`,
+                    animationDelay: `${(blip.angle / 360) * SWEEP_SECONDS}s`,
+                  }}
                 />
               )}
               {blip.proposed && (
@@ -353,6 +381,9 @@ export function RadarScope({
             </div>
             <div className="mt-1.5 flex items-center justify-between">
               <span className="text-[11px] text-slate-500">
+                {hover.fresh && (
+                  <span className="mr-1.5 text-phosphor">nuova ·</span>
+                )}
                 {hover.idea.topic_label ?? 'senza topic'}
               </span>
               <span className={`font-display text-xs font-semibold tabular-nums ${hover.proposed ? 'text-phosphor' : 'text-signal'}`}>
@@ -377,6 +408,17 @@ export function RadarScope({
           <span className="size-1.5 rounded-full bg-signal/80" />
           in osservazione
         </span>
+        {/* La legenda cita l'eco solo quando c'è qualcosa da spiegare: una
+            voce per un segno che nessuno sta vedendo è rumore. */}
+        {blips.some((b) => b.fresh) && (
+          <span className="inline-flex items-center gap-2">
+            <span className="relative inline-flex size-3 items-center justify-center">
+              <span className="absolute inset-0 animate-ping rounded-full border border-phosphor/50" />
+              <span className="size-1.5 rounded-full bg-phosphor" />
+            </span>
+            nuova in questo run
+          </span>
+        )}
         <span className="text-slate-600">centro = punteggio alto</span>
       </div>
     </div>

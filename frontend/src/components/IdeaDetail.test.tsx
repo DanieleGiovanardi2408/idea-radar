@@ -13,11 +13,13 @@ import { fakeIdea, mockFetch, renderWithProviders } from '../test/utils'
 
 function open(idea = fakeIdea(), extra: Record<string, unknown> = {}) {
   const mock = mockFetch({
+    // Le rotte di `extra` PRIMA: il mock sceglie per prefisso, quindi
+    // '/ideas/1' ingoierebbe '/ideas/1/videos' se venisse per prima.
+    ...extra,
     '/ideas/1': (init?: RequestInit) =>
       init?.method === 'PATCH'
         ? { ...idea, ...JSON.parse(String(init.body)) }
         : idea,
-    ...extra,
   })
   renderWithProviders(<IdeaDetail ideaId={1} onClose={() => {}} />)
   return mock
@@ -180,6 +182,54 @@ describe('IdeaDetail', () => {
     await user.dblClick(handle)
     expect(aside.style.width).toBe('')
     expect(localStorage.getItem('idea-radar:drawer-width')).toBeNull()
+  })
+})
+
+describe('IdeaVideos nel dossier', () => {
+  it('non cerca finché non glielo chiedi: la quota la autorizza un click', async () => {
+    /* Una ricerca YouTube costa 100 unità delle 10.000 al giorno, e un dossier
+       si apre molte più volte di quante i video interessino. */
+    const { calls } = open(fakeIdea(), {
+      '/ideas/1/videos': {
+        configured: true,
+        videos: [
+          {
+            video_id: 'v1',
+            title: 'Il runtime spiegato',
+            channel: 'Canale Tech',
+            published_at: '2026-07-26T10:00:00Z',
+            thumbnail: '',
+            live: false,
+            profile: null,
+            url: 'https://www.youtube.com/watch?v=v1',
+            embed_url: 'https://www.youtube-nocookie.com/embed/v1',
+          },
+        ],
+      },
+    })
+
+    await screen.findByRole('button', { name: /Cerca cosa se ne dice/ })
+    expect(calls.some((c) => c.url.includes('/videos'))).toBe(false)
+
+    await userEvent.click(
+      screen.getByRole('button', { name: /Cerca cosa se ne dice/ }),
+    )
+
+    expect(
+      await screen.findByRole('link', { name: /Il runtime spiegato/ }),
+    ).toHaveAttribute('href', 'https://www.youtube.com/watch?v=v1')
+  })
+
+  it('nessun video è un\'informazione, non un buco', async () => {
+    open(fakeIdea(), {
+      '/ideas/1/videos': { configured: true, videos: [] },
+    })
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Cerca cosa se ne dice/ }),
+    )
+
+    expect(await screen.findByText(/Nessuno ne parla/)).toBeInTheDocument()
   })
 })
 

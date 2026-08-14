@@ -229,6 +229,17 @@ export function useVideos(opts?: { limit?: number; live?: boolean }) {
   })
 }
 
+/** I video di UNA idea: `enabled` finché nessuno li ha chiesti, perché ogni
+ *  ricerca consuma quota — l'apertura del dossier non deve pagarla da sola. */
+export function useIdeaVideos(ideaId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ['ideaVideos', ideaId],
+    queryFn: () => api.ideaVideos(ideaId),
+    enabled,
+    staleTime: 10 * 60 * 1000,
+  })
+}
+
 export function useHealth() {
   return useQuery({
     queryKey: ['health'],

@@ -43,7 +43,7 @@ from app.queries import (
     ungrouped_per_profile,
 )
 from app.runlock import RunLockBusy, run_lock_busy
-from app.videos import trending_videos
+from app.videos import trending_videos, videos_for_idea
 from app.workspace import (
     WorkspaceError,
     enter_workspace,
@@ -715,9 +715,33 @@ def list_videos(
     Non entrano nella pipeline e non diventano idee: servono a vedere chi sta
     parlando adesso di ciò che il radar sta guardando.
     """
-    result = trending_videos(
-        get_config(), get_settings(), limit=limit, live_only=live
+    return _videos_out(
+        trending_videos(get_config(), get_settings(), limit=limit, live_only=live)
     )
+
+
+@app.get("/ideas/{idea_id}/videos", response_model=VideosOut)
+def list_idea_videos(
+    idea_id: int,
+    limit: int = Query(default=4, ge=1, le=10),
+    session: Session = Depends(get_db),
+) -> VideosOut:
+    """Cosa dicono di QUESTA idea: ricerca YouTube sul suo label.
+
+    Separato da ``/videos`` perché è un'altra domanda: là "chi parla dei miei
+    temi", qui "chi parla di questa cosa". Si chiama a richiesta dal dossier —
+    una ricerca costa 100 unità di quota e un dossier si apre spesso senza che
+    i video interessino.
+    """
+    idea = session.get(Idea, idea_id)
+    if idea is None:
+        raise HTTPException(status_code=404, detail="Idea non trovata")
+    return _videos_out(
+        videos_for_idea(idea.label, get_config(), get_settings(), limit=limit)
+    )
+
+
+def _videos_out(result: dict) -> VideosOut:
     return VideosOut(
         configured=result["configured"],
         detail=result.get("detail"),

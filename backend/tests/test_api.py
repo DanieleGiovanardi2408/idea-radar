@@ -337,6 +337,29 @@ def test_videos_endpoint_says_when_the_key_is_missing(
     assert "YOUTUBE_API_KEY" in data["detail"]
 
 
+def test_idea_videos_search_the_label_of_that_idea(
+    client: TestClient, session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """La ricerca per idea parte dal label: è ciò che la distingue da /videos."""
+    idea = _seed(session)
+    chiesto: list[str] = []
+
+    def _fake(label, config, settings, **kwargs):
+        chiesto.append(label)
+        return {"configured": True, "videos": [], "cached": False}
+
+    monkeypatch.setattr("app.api.videos_for_idea", _fake)
+    res = client.get(f"/ideas/{idea.id}/videos")
+
+    assert res.status_code == 200
+    assert chiesto == ["Idea A"]
+
+
+def test_idea_videos_on_a_missing_idea_is_a_404(client: TestClient) -> None:
+    """404 e non un pannello vuoto: la differenza tra "non c'è" e "non ho trovato"."""
+    assert client.get("/ideas/999/videos").status_code == 404
+
+
 def test_stats_endpoint(client: TestClient, session: Session) -> None:
     _seed(session)
     stats = client.get("/stats").json()

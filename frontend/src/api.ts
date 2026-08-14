@@ -56,6 +56,9 @@ export const api = {
     const qs = q.toString()
     return get<VideosOut>(`/videos${qs ? `?${qs}` : ''}`)
   },
+  /** Video su UNA idea: la ricerca parte dal suo label, non dai temi. */
+  ideaVideos: (ideaId: number, limit = 4) =>
+    get<VideosOut>(`/ideas/${ideaId}/videos?limit=${limit}`),
   ideas: async (params?: {
     status?: string
     topic_id?: number

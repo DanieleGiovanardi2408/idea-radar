@@ -3,7 +3,7 @@ import { IdeaCard } from '../components/IdeaCard'
 import { RadarScope } from '../components/RadarScope'
 import { EmptyState, ErrorNotice, SkeletonCard } from '../components/ui'
 import { useDebounced } from '../hooks/useDebounced'
-import { useIdeas, useProfiles } from '../hooks/useRadarData'
+import { useIdeas, useProfiles, useStats } from '../hooks/useRadarData'
 
 type Filter = 'proposed' | 'all'
 
@@ -18,6 +18,8 @@ export function RadarView({ onSelect }: { onSelect: (id: number) => void }) {
   const q = useDebounced(query.trim(), 300)
 
   const { data: profiles = [] } = useProfiles()
+  // L'inizio dell'ultimo run: il quadrante ci distingue i contatti nuovi.
+  const { data: stats } = useStats()
 
   // Il quadrante mostra SEMPRE tutti i temi: selezionarne uno accende il suo
   // spicchio invece di far sparire gli altri — la mappa resta intera.
@@ -121,6 +123,7 @@ export function RadarView({ onSelect }: { onSelect: (id: number) => void }) {
         onSelect={onSelect}
         profiles={profiles}
         activeProfile={profile}
+        freshSince={stats?.last_run?.started_at ?? null}
       />
 
       <div className="glass flex flex-wrap items-center gap-3 rounded-2xl p-2">

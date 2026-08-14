@@ -138,3 +138,33 @@ describe('gli spicchi per tema', () => {
     expect(screen.getByText('senza tema')).toBeInTheDocument()
   })
 })
+
+describe('contatti nuovi', () => {
+  it("annuncia la novità anche a chi non vede l'eco", () => {
+    /* L'eco è un'animazione: per chi usa lo screen reader non esiste. Il nome
+       accessibile del blip lo dice a parole, come già fa per "sopra soglia". */
+    const nuove = [
+      fakeIdeaOut({ id: 1, label: 'Appena arrivata', first_seen: '2026-08-14T09:30:00' }),
+      fakeIdeaOut({ id: 2, label: 'Di ieri', first_seen: '2026-08-13T09:30:00' }),
+    ]
+    render(
+      <RadarScope
+        ideas={nuove}
+        onSelect={() => {}}
+        freshSince="2026-08-14T09:00:00"
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: /Appena arrivata.*nuova in questo run/ }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /Di ieri.*nuova in questo run/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('senza contatti nuovi la legenda non ne parla', () => {
+    render(<RadarScope ideas={ideas(3)} onSelect={() => {}} />)
+    expect(screen.queryByText('nuova in questo run')).not.toBeInTheDocument()
+  })
+})

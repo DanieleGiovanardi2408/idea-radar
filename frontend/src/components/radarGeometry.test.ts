@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 import {
   blipsFor,
   CENTER,
+  isFresh,
   MAX_BLIPS,
   pointAt,
   R_MAX,
@@ -131,5 +132,42 @@ describe('gli spicchi', () => {
     const destra = pointAt(90, 100)
     expect(destra.x).toBeCloseTo(CENTER + 100, 5)
     expect(destra.y).toBeCloseTo(CENTER, 5)
+  })
+})
+
+describe('contatti nuovi', () => {
+  it("è nuova l'idea vista per la prima volta dopo l'inizio dell'ultimo run", () => {
+    const since = '2026-08-14T09:00:00'
+    expect(
+      isFresh(fakeIdeaOut({ first_seen: '2026-08-14T09:12:00' }), since),
+    ).toBe(true)
+    expect(
+      isFresh(fakeIdeaOut({ first_seen: '2026-08-13T22:00:00' }), since),
+    ).toBe(false)
+  })
+
+  it('senza run in archivio nessuno è nuovo', () => {
+    /* "Nuovo" detto a tutti è lo stesso che non dirlo, e in più fa pulsare
+       sessanta blip insieme. */
+    expect(isFresh(fakeIdeaOut({ first_seen: '2026-08-14T09:12:00' }), null)).toBe(false)
+    expect(isFresh(fakeIdeaOut({ first_seen: null }), '2026-08-14T09:00:00')).toBe(false)
+  })
+
+  it('una data illeggibile non promuove nessuno a contatto nuovo', () => {
+    expect(isFresh(fakeIdeaOut({ first_seen: 'boh' }), '2026-08-14T09:00:00')).toBe(false)
+  })
+
+  it('blipsFor propaga la freschezza sul blip', () => {
+    const since = '2026-08-14T09:00:00'
+    const blips = blipsFor(
+      [
+        fakeIdeaOut({ id: 1, first_seen: '2026-08-14T09:30:00' }),
+        fakeIdeaOut({ id: 2, first_seen: '2026-08-01T09:30:00' }),
+      ],
+      [],
+      since,
+    )
+    expect(blips.find((b) => b.idea.id === 1)?.fresh).toBe(true)
+    expect(blips.find((b) => b.idea.id === 2)?.fresh).toBe(false)
   })
 })

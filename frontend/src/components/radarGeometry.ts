@@ -26,6 +26,8 @@ export type Blip = {
   y: number
   angle: number
   proposed: boolean
+  /** Vista per la prima volta nell'ultimo run: il radar la segnala come nuova. */
+  fresh: boolean
 }
 
 export type Sector = {
@@ -68,7 +70,25 @@ export function sectorsFor(ideas: IdeaOut[], order: string[] = []): Sector[] {
   }))
 }
 
-export function blipsFor(ideas: IdeaOut[], order: string[] = []): Blip[] {
+/** Se un'idea è comparsa nell'ultimo run.
+ *
+ * `first_seen` è il momento in cui l'idea è nata, `since` l'inizio dell'ultimo
+ * run: nata dopo che il run è partito = l'ha trovata quel run. Senza `since`
+ * (nessun run in archivio) nessuno è nuovo — meglio non dire niente che dire
+ * "nuovo" a tutti, che è lo stesso che non dirlo. */
+export function isFresh(idea: IdeaOut, since?: string | null): boolean {
+  if (!since || !idea.first_seen) return false
+  const nata = new Date(idea.first_seen).getTime()
+  const inizio = new Date(since).getTime()
+  if (Number.isNaN(nata) || Number.isNaN(inizio)) return false
+  return nata >= inizio
+}
+
+export function blipsFor(
+  ideas: IdeaOut[],
+  order: string[] = [],
+  freshSince?: string | null,
+): Blip[] {
   const sectors = sectorsFor(ideas, order)
   const sectorIndex = new Map(sectors.map((s, i) => [s.profile, i]))
   const width = 360 / Math.max(sectors.length, 1)
@@ -92,6 +112,7 @@ export function blipsFor(ideas: IdeaOut[], order: string[] = []): Blip[] {
         x,
         y,
         proposed: idea.status === 'proposed',
+        fresh: isFresh(idea, freshSince),
       }
     })
 }

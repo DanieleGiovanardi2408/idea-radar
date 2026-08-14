@@ -15,6 +15,7 @@ from app.videos import (
     filter_relevant,
     search_params,
     trending_videos,
+    videos_for_idea,
 )
 
 
@@ -276,3 +277,106 @@ def test_blocklist_canali_lavora_anche_senza_embedding() -> None:
     kept, dropped = filter_relevant(videos, config, Settings(), None)
     assert [v.channel for v in kept] == ["Canale Tech"]
     assert dropped == 1
+
+
+# ---- Video per idea: "cosa dicono di QUESTA cosa" -----------------------------
+
+
+def test_the_idea_search_uses_the_label_as_the_query() -> None:
+    """Il pannello cerca per tema, il dossier per idea: due domande diverse."""
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.params["q"])
+        return httpx.Response(200, json={"items": [_entry("uno")]})
+
+    cache_clear()
+    result = videos_for_idea(
+        "Runtime self-hosted per agenti",
+        _config(),
+        Settings(youtube_api_key="k"),
+        client=_client(handler),
+        use_cache=False,
+    )
+
+    assert seen == ["Runtime self-hosted per agenti"]  # una ricerca sola
+    assert [v.video_id for v in result["videos"]] == ["uno"]
+    assert result["videos"][0].profile is None  # non viene da un tema
+
+
+def test_the_idea_search_is_cached_like_the_panel() -> None:
+    """100 unità di quota a ricerca: riaprire il dossier non deve ripagarle."""
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(200, json={"items": [_entry("uno")]})
+
+    cache_clear()
+    settings = Settings(youtube_api_key="k")
+    first = videos_for_idea("Un'idea", _config(), settings, client=_client(handler))
+    second = videos_for_idea("Un'idea", _config(), settings, client=_client(handler))
+
+    assert first["cached"] is False
+    assert second["cached"] is True
+    assert calls["n"] == 1
+
+
+def test_the_idea_search_judges_against_the_label_not_the_profiles() -> None:
+    """Si è cercato il label: se il titolo non gli somiglia, YouTube ha risposto d'altro."""
+    label = "AI agents"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "items": [
+                    _entry("buono", title="Building AI agents from scratch"),
+                    _entry("fuori", title="Peppa Pig Gets a BRAND NEW SMART TV"),
+                ]
+            },
+        )
+
+    mapping = {
+        text_for_embedding(label): [1.0, 0.0],
+        text_for_embedding("Building AI agents from scratch"): [0.95, 0.05],
+        text_for_embedding("Peppa Pig Gets a BRAND NEW SMART TV"): [0.0, 1.0],
+    }
+    cache_clear()
+    result = videos_for_idea(
+        label,
+        _config(videos=VideosConfig(min_similarity=0.5)),
+        Settings(youtube_api_key="k"),
+        client=_client(handler),
+        use_cache=False,
+        embedder=_FakeEmbedder(mapping),
+    )
+
+    assert [v.video_id for v in result["videos"]] == ["buono"]
+
+
+def test_a_failed_idea_search_is_empty_not_an_exception() -> None:
+    """Un dossier che si apre a metà per colpa di YouTube sarebbe peggio del vuoto."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={})
+
+    cache_clear()
+    result = videos_for_idea(
+        "Un'idea",
+        _config(),
+        Settings(youtube_api_key="k"),
+        client=_client(handler),
+        use_cache=False,
+    )
+
+    assert result["configured"] is True
+    assert result["videos"] == []
+
+
+def test_without_the_key_the_idea_search_explains_itself_too() -> None:
+    cache_clear()
+    result = videos_for_idea("Un'idea", _config(), Settings(youtube_api_key=""))
+
+    assert result["configured"] is False
+    assert "YOUTUBE_API_KEY" in result["detail"]
