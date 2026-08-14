@@ -59,6 +59,13 @@ _run_lock = threading.Lock()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # Uvicorn configura solo i SUOI logger: senza questo, gli INFO
+    # dell'applicazione (filtro video, enricher, budget etichette…) non
+    # arrivano mai al terminale e il debugging va a tentoni. basicConfig è
+    # un no-op se il root logger ha già degli handler (es. sotto pytest).
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s %(name)s — %(message)s"
+    )
     init_db()
     yield
 
