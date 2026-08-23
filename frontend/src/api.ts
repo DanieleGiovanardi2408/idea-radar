@@ -23,11 +23,15 @@ const BASE = API_BASE
 /** Un errore HTTP che si porta dietro lo stato: serve dove la UI deve dire
  *  cose diverse a seconda del codice, invece di un unico "non ha funzionato". */
 export class ApiError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
+  // Campo esplicito invece di parametro-proprietà: `erasableSyntaxOnly` (attivo
+  // in tsconfig.app.json) vieta la sintassi che un transpiler non può cancellare
+  // senza generare codice, e `constructor(readonly status: number)` è proprio
+  // quella. Il tipo si toglie, l'assegnamento no.
+  readonly status: number
+
+  constructor(status: number, message: string) {
     super(message)
+    this.status = status
     this.name = 'ApiError'
   }
 }
