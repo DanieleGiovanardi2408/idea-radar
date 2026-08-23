@@ -1,7 +1,14 @@
-"""Video in tendenza: contesto, non segnali.
+"""Video: contesto, non segnali.
 
 Non entrano nella pipeline, non diventano idee, non vengono scorati. E senza la
 chiave il pannello deve spegnersi dicendo perché, non sembrare rotto.
+
+Sulla pertinenza questi test coprono la scelta di fondo: si ORDINA, non si
+filtra. Una soglia decide sì/no su un numero la cui distribuzione non conosci —
+ed è esattamente così che il filtro precedente non ha mai scartato niente, con
+un `min_similarity` a 0.40 sotto la similarità media di due testi qualsiasi
+(0.614 con nomic-embed-text, misurata in questo repo). Un ordinamento decide
+chi è più vicino, e quella domanda ha sempre una risposta.
 """
 
 import httpx
@@ -12,7 +19,8 @@ from app.embeddings import EmbeddingError, text_for_embedding
 from app.videos import (
     Video,
     cache_clear,
-    filter_relevant,
+    probes_for,
+    rank_by_anchor,
     search_params,
     trending_videos,
     videos_for_idea,
@@ -25,12 +33,14 @@ def _config(videos: VideosConfig | None = None) -> AppConfig:
         keywords=["ai"],
         profiles=[
             ProfileConfig(name="agenti", label="Agenti AI", keywords=["ai agents"]),
-            ProfileConfig(name="domotica", label="Domotica", keywords=["home assistant"]),
+            ProfileConfig(
+                name="domotica", label="Domotica", keywords=["home assistant"]
+            ),
         ],
         scoring=ScoringConfig(weights={"heat": 1.0}, threshold=0.5),
-        # Nei test del pannello il filtro embedding resta spento: ha i suoi
-        # test dedicati sotto, con un embedder finto.
-        videos=videos or VideosConfig(min_similarity=0.0),
+        # Nei test del pannello l'ordinamento semantico resta fuori gioco: ha i
+        # suoi test dedicati sotto, con un embedder finto.
+        videos=videos or VideosConfig(),
     )
 
 
@@ -61,15 +71,18 @@ def test_without_the_key_the_panel_explains_itself() -> None:
     assert "YOUTUBE_API_KEY" in result["detail"]
 
 
-def test_recent_and_most_watched_not_most_watched_ever() -> None:
-    """`order=viewCount` senza finestra darebbe i video più visti della storia.
+def test_si_ordina_per_pertinenza_non_per_visualizzazioni() -> None:
+    """`order=viewCount` è il `sort:stars` di YouTube.
 
-    È lo stesso errore che teneva la fonte GitHub sui repo più stellati di sempre:
-    i più popolari in assoluto non sono una tendenza.
+    Il README passa tre paragrafi a spiegare perché ordinare GitHub per stelle
+    restituisce mercati chiusi; ordinare YouTube per visualizzazioni ha lo
+    stesso difetto e per giunta peggiore, perché in una settimana un video
+    tecnico fa cinquemila visualizzazioni e un gadget virale due milioni. La
+    tendenza la dà la finestra temporale, non l'ordinamento.
     """
     params = search_params("ai agents", 5, live_only=False)
 
-    assert params["order"] == "viewCount"
+    assert params["order"] == "relevance"
     assert "publishedAfter" in params  # la finestra è ciò che rende "tendenza"
     assert params["type"] == "video"
 
@@ -82,7 +95,17 @@ def test_live_only_asks_for_live_and_drops_the_time_window() -> None:
     assert "publishedAfter" not in params
 
 
+def test_senza_recent_non_ci_si_limita_alla_settimana() -> None:
+    """La ricerca per idea non ha una scadenza: la finestra è del pannello."""
+    assert "publishedAfter" not in search_params("x", 5, False, recent=False)
+
+
 def test_one_query_per_theme_with_its_keywords() -> None:
+    """La QUERY resta di keyword: YouTube deve poterla cercare.
+
+    Il label di un'idea è spesso `@scope/pacchetto` o "Show HN: …", che come
+    query non esiste. Cambia l'ancoraggio, non ciò che si chiede.
+    """
     seen: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -98,6 +121,27 @@ def test_one_query_per_theme_with_its_keywords() -> None:
     )
 
     assert seen == ["ai agents", "home assistant"]  # un tema per query
+
+
+def test_si_chiedono_piu_candidati_di_quanti_se_ne_tengano() -> None:
+    """Una ricerca costa 100 unità che se ne chiedano 2 o 12: senza candidati
+    non c'è niente da ordinare, e risparmiare qui non risparmia nulla."""
+    chiesti: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        chiesti.append(int(request.url.params["maxResults"]))
+        return httpx.Response(200, json={"items": []})
+
+    cache_clear()
+    config = _config(videos=VideosConfig(per_theme=2, candidates=12))
+    trending_videos(
+        config,
+        Settings(youtube_api_key="k"),
+        client=_client(handler),
+        use_cache=False,
+    )
+
+    assert chiesti == [12, 12]
 
 
 def test_videos_carry_the_profile_that_found_them() -> None:
@@ -173,6 +217,30 @@ def test_the_cache_spares_the_quota() -> None:
     assert calls["n"] == 2  # due temi al primo giro, zero al secondo
 
 
+def test_un_ancoraggio_nuovo_non_riusa_la_cache_del_vecchio() -> None:
+    """L'ancoraggio sono le idee in cima: cambia a ogni run, e con esso il
+    giudizio. Servire dalla cache il pannello di ieri sarebbe servire una
+    pertinenza misurata su idee che non sono più lì."""
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(200, json={"items": [_entry("uno")]})
+
+    cache_clear()
+    settings = Settings(youtube_api_key="k")
+    trending_videos(
+        _config(), settings, anchors={"agenti": "runtime per agenti"},
+        client=_client(handler),
+    )
+    trending_videos(
+        _config(), settings, anchors={"agenti": "tutt'altra cosa"},
+        client=_client(handler),
+    )
+
+    assert calls["n"] == 4  # due temi per due ancoraggi diversi
+
+
 def test_a_malformed_entry_is_skipped() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -191,7 +259,29 @@ def test_a_malformed_entry_is_skipped() -> None:
     assert [v.video_id for v in result["videos"]] == ["buono"]
 
 
-# ---- filtro di pertinenza ----------------------------------------------------
+# ---- l'ancoraggio: contro cosa si misura la pertinenza -----------------------
+
+
+def test_l_ancoraggio_sono_le_idee_trovate_non_le_keyword() -> None:
+    """La domanda del pannello è "chi parla di ciò che ho trovato"."""
+    probes = probes_for(
+        _config(), {"agenti": "Runtime self-hosted per agenti. Gira in locale."}
+    )
+    per_tema = {p.profile: p for p in probes}
+
+    assert per_tema["agenti"].query == "ai agents"  # cercabile
+    assert "Runtime self-hosted" in per_tema["agenti"].anchor  # misurabile
+
+
+def test_senza_idee_si_ripiega_sulle_keyword() -> None:
+    """Al primo avvio non c'è nessun run: un pannello che funziona subito vale
+    più di uno perfetto che pretende uno storico."""
+    probes = probes_for(_config(), {})
+
+    assert [p.anchor for p in probes] == ["ai agents", "home assistant"]
+
+
+# ---- pertinenza per ordinamento ---------------------------------------------
 
 
 class _FakeEmbedder:
@@ -209,7 +299,7 @@ class _FakeEmbedder:
 
 def _video(title: str, profile: str = "agenti", channel: str = "Canale Tech") -> Video:
     return Video(
-        video_id=title[:8],
+        video_id=title[:12],
         title=title,
         channel=channel,
         published_at="2026-07-26T10:00:00Z",
@@ -219,62 +309,109 @@ def _video(title: str, profile: str = "agenti", channel: str = "Canale Tech") ->
     )
 
 
-def _filter_config() -> AppConfig:
-    return _config(videos=VideosConfig(min_similarity=0.5))
+# Un asse per tema; i titoli si allontanano dal proprio asse quanto basta a
+# ordinarli. Le similarità che ne escono: vicinissimo 1.00, vicino 0.89,
+# lontano 0.32.
+_MAPPING = {
+    text_for_embedding("agenti"): [1.0, 0.0],
+    text_for_embedding("domotica"): [0.0, 1.0],
+    text_for_embedding("vicinissimo"): [1.0, 0.02],
+    text_for_embedding("vicino"): [1.0, 0.5],
+    text_for_embedding("lontano"): [1.0, 3.0],
+    text_for_embedding("domotico"): [0.1, 1.0],
+}
 
 
-def _mapping() -> dict[str, list[float]]:
-    return {
-        # I due temi: assi ortogonali.
-        text_for_embedding("ai agents"): [1.0, 0.0],
-        text_for_embedding("home assistant"): [0.0, 1.0],
-        # Titoli: uno centrato sul suo tema, uno lontano dal suo (la domotica
-        # è l'asse y: il vettore di Peppa Pig punta quasi tutto altrove).
-        text_for_embedding("Building AI agents from scratch"): [0.95, 0.05],
-        text_for_embedding("Peppa Pig Gets a BRAND NEW SMART TV"): [0.95, 0.1],
-    }
+def _anchor_of(video: Video) -> str | None:
+    return video.profile
 
 
-def test_filtro_scarta_il_fuori_tema_e_tiene_il_pertinente() -> None:
-    videos = [
-        _video("Building AI agents from scratch"),
-        _video("Peppa Pig Gets a BRAND NEW SMART TV", profile="domotica"),
-    ]
-    kept, dropped = filter_relevant(
-        videos, _filter_config(), Settings(), _FakeEmbedder(_mapping())
+def test_si_tengono_i_piu_vicini_non_quelli_sopra_una_soglia() -> None:
+    videos = [_video("lontano"), _video("vicinissimo"), _video("vicino")]
+
+    kept, dropped = rank_by_anchor(
+        videos, _anchor_of, 2, _config(), Settings(), _FakeEmbedder(_MAPPING)
     )
-    assert [v.title for v in kept] == ["Building AI agents from scratch"]
+
+    assert [v.title for v in kept] == ["vicinissimo", "vicino"]
     assert dropped == 1
 
 
-def test_filtro_senza_ollama_tiene_tutto() -> None:
-    """Un pannello di contesto imperfetto è meglio di un pannello morto."""
-    videos = [_video("Peppa Pig Gets a BRAND NEW SMART TV", profile="domotica")]
-    kept, dropped = filter_relevant(
-        videos, _filter_config(), Settings(), _FakeEmbedder({}, fail=True)
+def test_ogni_tema_tiene_i_suoi() -> None:
+    """Il meglio DI OGNI tema, non il meglio in assoluto: altrimenti il tema
+    più video-genico della settimana si prende tutto il pannello e gli altri
+    spariscono — e un pannello che copre un tema solo non risponde più alla
+    domanda che pone."""
+    videos = [
+        _video("vicinissimo"),
+        _video("vicino"),
+        _video("domotico", profile="domotica"),
+    ]
+
+    kept, _ = rank_by_anchor(
+        videos, _anchor_of, 1, _config(), Settings(), _FakeEmbedder(_MAPPING)
     )
-    assert len(kept) == 1
-    assert dropped == 0
+
+    assert {v.profile for v in kept} == {"agenti", "domotica"}
 
 
-def test_filtro_non_giudicabile_non_e_colpevole() -> None:
-    """Vettore mancante per un titolo (o tema ignoto): il video resta."""
-    videos = [_video("Titolo mai embeddato"), _video("Altro", profile=None)]
-    kept, _ = filter_relevant(
-        videos, _filter_config(), Settings(), _FakeEmbedder(_mapping())
+def test_il_pavimento_e_spento_di_default() -> None:
+    """Una costante si accende dopo aver letto i numeri veri, non prima."""
+    videos = [_video("vicinissimo"), _video("lontano")]
+
+    kept, dropped = rank_by_anchor(
+        videos, _anchor_of, 5, _config(), Settings(), _FakeEmbedder(_MAPPING)
     )
-    assert len(kept) == 2
+
+    assert len(kept) == 2 and dropped == 0
+
+
+def test_il_pavimento_acceso_taglia_anche_se_ci_sarebbe_posto() -> None:
+    config = _config(videos=VideosConfig(min_similarity=0.5))
+    videos = [_video("vicinissimo"), _video("lontano")]  # 1.00 e 0.32
+
+    kept, dropped = rank_by_anchor(
+        videos, _anchor_of, 5, config, Settings(), _FakeEmbedder(_MAPPING)
+    )
+
+    assert [v.title for v in kept] == ["vicinissimo"]
+    assert dropped == 1
+
+
+def test_senza_ollama_si_tiene_l_ordine_di_youtube() -> None:
+    """Un pannello ordinato peggio è meglio di un pannello morto perché il
+    giudice non poteva giudicare."""
+    videos = [_video("primo"), _video("secondo"), _video("terzo")]
+
+    kept, _ = rank_by_anchor(
+        videos, _anchor_of, 2, _config(), Settings(), _FakeEmbedder({}, fail=True)
+    )
+
+    assert [v.title for v in kept] == ["primo", "secondo"]
+
+
+def test_non_giudicabile_non_e_colpevole_ma_chiude_la_fila() -> None:
+    """Vettore mancante: il video resta se c'è posto, ma non scavalca chi è
+    stato misurato — e il pavimento non lo tocca, perché non è stato giudicato."""
+    config = _config(videos=VideosConfig(min_similarity=0.9))
+    videos = [_video("mai visto prima"), _video("vicinissimo")]
+
+    kept, _ = rank_by_anchor(
+        videos, _anchor_of, 2, config, Settings(), _FakeEmbedder(_MAPPING)
+    )
+
+    assert [v.title for v in kept] == ["vicinissimo", "mai visto prima"]
 
 
 def test_blocklist_canali_lavora_anche_senza_embedding() -> None:
-    config = _config(
-        videos=VideosConfig(min_similarity=0.0, blocked_channels=["peppa pig"])
-    )
+    config = _config(videos=VideosConfig(blocked_channels=["peppa pig"]))
     videos = [
         _video("Un video qualsiasi", channel="Peppa Pig's Big Adventures"),
-        _video("Building AI agents from scratch"),
+        _video("vicinissimo"),
     ]
-    kept, dropped = filter_relevant(videos, config, Settings(), None)
+
+    kept, dropped = rank_by_anchor(videos, _anchor_of, 5, config, Settings(), None)
+
     assert [v.channel for v in kept] == ["Canale Tech"]
     assert dropped == 1
 
@@ -304,6 +441,28 @@ def test_the_idea_search_uses_the_label_as_the_query() -> None:
     assert result["videos"][0].profile is None  # non viene da un tema
 
 
+def test_la_ricerca_per_idea_non_si_limita_alla_settimana() -> None:
+    """La finestra a 7 giorni trasformava in «nessuno ne parla» ogni idea
+    salita più di una settimana fa: il contrario dell'informazione che il
+    dossier vuole dare."""
+    finestre: list[bool] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        finestre.append("publishedAfter" in request.url.params)
+        return httpx.Response(200, json={"items": [_entry("uno")]})
+
+    cache_clear()
+    videos_for_idea(
+        "Un'idea",
+        _config(),
+        Settings(youtube_api_key="k"),
+        client=_client(handler),
+        use_cache=False,
+    )
+
+    assert finestre == [False]
+
+
 def test_the_idea_search_is_cached_like_the_panel() -> None:
     """100 unità di quota a ricerca: riaprire il dossier non deve ripagarle."""
     calls = {"n": 0}
@@ -322,34 +481,31 @@ def test_the_idea_search_is_cached_like_the_panel() -> None:
     assert calls["n"] == 1
 
 
-def test_the_idea_search_judges_against_the_label_not_the_profiles() -> None:
-    """Si è cercato il label: se il titolo non gli somiglia, YouTube ha risposto d'altro."""
-    label = "AI agents"
-
+def test_la_ricerca_per_idea_si_giudica_sul_suo_ancoraggio() -> None:
+    """Si è cercato il label: se il titolo non gli somiglia, YouTube ha
+    risposto d'altro. E l'ancoraggio può dire più del label — un nome di
+    pacchetto non descrive niente, il sommario sì."""
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
             json={
                 "items": [
-                    _entry("buono", title="Building AI agents from scratch"),
-                    _entry("fuori", title="Peppa Pig Gets a BRAND NEW SMART TV"),
+                    _entry("fuori", title="lontano"),
+                    _entry("buono", title="vicinissimo"),
                 ]
             },
         )
 
-    mapping = {
-        text_for_embedding(label): [1.0, 0.0],
-        text_for_embedding("Building AI agents from scratch"): [0.95, 0.05],
-        text_for_embedding("Peppa Pig Gets a BRAND NEW SMART TV"): [0.0, 1.0],
-    }
     cache_clear()
     result = videos_for_idea(
-        label,
-        _config(videos=VideosConfig(min_similarity=0.5)),
+        "@scope/pacchetto",
+        _config(),
         Settings(youtube_api_key="k"),
+        limit=1,
+        anchor="agenti",
         client=_client(handler),
         use_cache=False,
-        embedder=_FakeEmbedder(mapping),
+        embedder=_FakeEmbedder(_MAPPING),
     )
 
     assert [v.video_id for v in result["videos"]] == ["buono"]

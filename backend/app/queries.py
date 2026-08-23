@@ -422,3 +422,33 @@ def monitor_stats(session: Session) -> dict:
         "last_run": last_run,
         "recent_runs": runs[-10:],
     }
+
+
+def profile_anchors(
+    session: Session,
+    profile_names: list[str],
+    per_profile: int = 3,
+    max_chars: int = 800,
+) -> dict[str, str]:
+    """Per ogni tema, il testo di ciò che il radar ci ha davvero trovato.
+
+    È l'ancoraggio del pannello video: la pertinenza di un risultato si misura
+    contro le idee in cima a quel tema — label e sommario, cioè frasi vere —
+    invece che contro la lista delle keyword, che come embedding vale poco
+    (una fila di termini separati da virgole non è una frase, e la similarità
+    finisce per misurare "sono entrambi testi tecnici in inglese").
+
+    Un tema senza idee non compare nel risultato: il chiamante ripiega da sé
+    sulle keyword, che al primo avvio sono tutto ciò che c'è.
+    """
+    anchors: dict[str, str] = {}
+    for name in profile_names:
+        parts: list[str] = []
+        for idea, _score in top_ideas(session, limit=per_profile, profile=name):
+            parts.append(idea.label)
+            if idea.summary:
+                parts.append(idea.summary[:200])
+        text = " ".join(p.strip() for p in parts if p and p.strip())
+        if text:
+            anchors[name] = text[:max_chars]
+    return anchors

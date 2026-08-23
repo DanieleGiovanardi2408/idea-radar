@@ -161,7 +161,7 @@ The interface is a single-page **"radar room"**: a dark, glass-panelled console 
 
 **Signal rhythm** is built on `created_at`, not `fetched_at` — `fetched_at` would draw a vertical stripe every four hours: the rhythm of our own scheduler, not of the network. Items with no date are excluded and the panel says how many.
 
-**Who's talking** searches YouTube once per profile, ordered by view count *within the last week* — dropping the window would return the most-watched videos of all time. Videos are context, never signals: they don't enter the pipeline.
+**Who's talking** searches YouTube once per theme and keeps the two results closest to what the radar actually found there — the labels and summaries of that theme's top ideas, not its keyword list. Relevance is a **ranking**, not a threshold. The first version thresholded cosine similarity at 0.40 and discarded exactly nothing, because with `nomic-embed-text` two *unrelated* texts already sit at 0.614. Measured on 48 real results, the whole panel spans 0.51–0.83 and the per-theme ranges overlap: the lowest **kept** video (0.64) scores below the highest **rejected** one (0.72), so no single threshold can reproduce the selection — which is why the floor ships disabled. The search is ordered by relevance, not view count: over one week, view count returns the viral, not the pertinent (the same trap as `sort:stars` on GitHub). Videos are context, never signals: they don't enter the pipeline.
 
 **There is no world map**, deliberately. Across 1762 archived items **not one field carries a location**. A map would have meant ~30 usable points out of 1762 signals presented as "where signals come from". A 2% sample dressed as a fact is worse than no panel.
 </details>

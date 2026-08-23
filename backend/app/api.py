@@ -36,6 +36,7 @@ from app.queries import (
     ideas_per_profile,
     latest_score_for,
     monitor_stats,
+    profile_anchors,
     signal_rhythm,
     top_ideas,
     topic_trends,
@@ -709,14 +710,27 @@ class VideosOut(BaseModel):
 def list_videos(
     limit: int = Query(default=8, ge=1, le=25),
     live: bool = False,
+    session: Session = Depends(get_db),
 ) -> VideosOut:
-    """Video in tendenza sui temi del radar. Contesto, non segnali.
+    """Chi parla di ciò che il radar ha trovato. Contesto, non segnali.
 
-    Non entrano nella pipeline e non diventano idee: servono a vedere chi sta
-    parlando adesso di ciò che il radar sta guardando.
+    Non entrano nella pipeline e non diventano idee. La sessione serve
+    all'ancoraggio: la pertinenza dei risultati si misura contro le idee in
+    cima a ciascun tema, non contro la lista delle keyword — è la differenza
+    fra "chi parla dei miei temi" e "chi parla di ciò che ho trovato".
     """
+    config = get_config()
+    anchors = profile_anchors(
+        session, [p.name for p in config.effective_profiles()]
+    )
     return _videos_out(
-        trending_videos(get_config(), get_settings(), limit=limit, live_only=live)
+        trending_videos(
+            config,
+            get_settings(),
+            anchors=anchors,
+            limit=limit,
+            live_only=live,
+        )
     )
 
 
@@ -736,8 +750,17 @@ def list_idea_videos(
     idea = session.get(Idea, idea_id)
     if idea is None:
         raise HTTPException(status_code=404, detail="Idea non trovata")
+    # Si cerca il label (è ciò che YouTube può cercare), ma si giudica anche
+    # sul sommario: due frasi descrivono l'idea meglio di un nome di pacchetto.
+    anchor = " ".join(filter(None, [idea.label, (idea.summary or "")[:200]]))
     return _videos_out(
-        videos_for_idea(idea.label, get_config(), get_settings(), limit=limit)
+        videos_for_idea(
+            idea.label,
+            get_config(),
+            get_settings(),
+            limit=limit,
+            anchor=anchor,
+        )
     )
 
 

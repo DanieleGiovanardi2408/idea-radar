@@ -439,3 +439,106 @@ def test_ideas_can_be_asked_for_the_ungrouped_ones(
     assert {i["label"] for i in tutte} == {idea.label, "Idea senza tema"}
     assert [i["label"] for i in senza] == ["Idea senza tema"]
     assert all(i["topic_id"] is None for i in senza)
+
+
+# ---- il pannello video si ancora a ciò che il radar ha trovato ---------------
+
+
+def _config_due_temi():
+    from app.appconfig import AppConfig, ProfileConfig, ScoringConfig
+
+    return AppConfig(
+        sources=[],
+        keywords=["ai"],
+        profiles=[
+            ProfileConfig(name="agenti", label="Agenti AI", keywords=["ai agents"]),
+            ProfileConfig(name="domotica", label="Domotica", keywords=["esp32"]),
+        ],
+        scoring=ScoringConfig(weights={"heat": 1.0}, threshold=0.5),
+    )
+
+
+def _seed_con_profilo(session: Session, profilo: str, label: str, summary: str) -> None:
+    idea = Idea(label=label, summary=summary, status=IdeaStatus.PROPOSED)
+    idea.items = [Item(source="hn", external_id=label, title=label)]
+    session.add(idea)
+    session.commit()
+    session.refresh(idea)
+    run = Run(n_items=1, status=RunStatus.DONE, phase="completato")
+    session.add(run)
+    session.commit()
+    session.refresh(run)
+    session.add(
+        Score(
+            idea_id=idea.id,
+            run_id=run.id,
+            heat=0.5,
+            credibility=0.5,
+            feasibility=0.5,
+            opportunity=0.5,
+            fit=0.5,
+            composite=0.9,
+            profile=profilo,
+        )
+    )
+    session.commit()
+
+
+def test_gli_ancoraggi_sono_le_idee_in_cima_a_ciascun_tema(session: Session) -> None:
+    """La pertinenza dei video si misura contro ciò che il radar ha trovato.
+
+    Una lista di keyword separate da virgole non è una frase e come embedding
+    vale poco: la similarità finisce per misurare "sono entrambi testi tecnici
+    in inglese". Label e sommario sono testo vero.
+    """
+    from app.queries import profile_anchors
+
+    _seed_con_profilo(session, "agenti", "OzBrain", "Un cervello condiviso fra agenti.")
+
+    anchors = profile_anchors(session, ["agenti", "domotica"])
+
+    assert "OzBrain" in anchors["agenti"]
+    assert "cervello condiviso" in anchors["agenti"]
+    # Un tema senza idee non compare: il chiamante ripiega sulle keyword.
+    assert "domotica" not in anchors
+
+
+def test_il_pannello_video_passa_gli_ancoraggi(
+    client: TestClient, session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    visto: dict = {}
+
+    def _fake(config, settings, **kwargs):
+        visto.update(kwargs)
+        return {"configured": True, "videos": [], "cached": False}
+
+    _seed_con_profilo(session, "agenti", "OzBrain", "Un cervello condiviso fra agenti.")
+    monkeypatch.setattr("app.api.get_config", _config_due_temi)
+    monkeypatch.setattr("app.api.trending_videos", _fake)
+
+    assert client.get("/videos").status_code == 200
+    assert "OzBrain" in visto["anchors"]["agenti"]
+
+
+def test_i_video_di_un_idea_si_giudicano_anche_sul_sommario(
+    client: TestClient, session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Il label di un'idea è spesso un nome di pacchetto, che non descrive
+    niente: la query resta il label, il metro comprende il sommario."""
+    visto: dict = {}
+
+    def _fake(label, config, settings, **kwargs):
+        visto["label"] = label
+        visto.update(kwargs)
+        return {"configured": True, "videos": [], "cached": False}
+
+    idea = Idea(label="@scope/pacchetto", summary="Un runtime per agenti locali.")
+    idea.items = [Item(source="npm", external_id="p", title="@scope/pacchetto")]
+    session.add(idea)
+    session.commit()
+    session.refresh(idea)
+    monkeypatch.setattr("app.api.videos_for_idea", _fake)
+
+    assert client.get(f"/ideas/{idea.id}/videos").status_code == 200
+    assert visto["label"] == "@scope/pacchetto"
+    assert "runtime per agenti" in visto["anchor"]

@@ -368,15 +368,37 @@ outcomes:
 #   min_abs_gain: 25.0  # senza un "prima": hit da questo guadagno assoluto
 #   min_span_hours: 12.0
 
-# Pannello video — pertinenza prima di tutto (asse C del piano v2).
-# La ricerca "più visti della settimana" su keyword generiche pesca anche
-# contenuto virale fuori tema: il filtro confronta (embedding) il titolo del
-# video con le keyword del suo tema. Se Ollama non c'è, si tiene tutto.
+# Pannello video — pertinenza per ORDINAMENTO, non per soglia.
+#
+# Storia, perché il perché conta più dei numeri. La prima versione (asse C del
+# piano v2) chiedeva a YouTube i "più visti della settimana" sulle keyword del
+# tema e teneva tutto ciò che superava min_similarity: 0.4. Non ha mai scartato
+# niente, e non poteva — con nomic-embed-text due testi PRESI A CASO stanno già
+# a 0.614 di similarità media (vedi il commento di clustering.idea_threshold
+# qui sopra: è lo stesso modello, e la misura è la stessa). 0.4 era sotto il
+# rumore del modello: l'unica difesa che ha funzionato è stata la blocklist.
+#
+# Tre correzioni, tutte strutturali:
+#  1. l'ordinamento della ricerca passa da viewCount a relevance. viewCount è
+#     il `sort:stars` di YouTube — e qui è peggio che su GitHub, perché in una
+#     settimana un video tecnico fa 5.000 visualizzazioni e un gadget virale ne
+#     fa due milioni: ordinare per visualizzazioni GARANTISCE il fuori tema.
+#  2. l'ancoraggio non sono più le keyword ma i label e i sommari delle idee in
+#     cima a quel tema: la domanda diventa "chi parla di ciò che ho trovato".
+#  3. non si filtra, si ordina: si chiedono `candidates` video e si tengono i
+#     `per_theme` più vicini all'ancoraggio. Nessuna costante da azzeccare.
 videos:
-  min_similarity: 0.4   # 0 = filtro spento; si tara guardando le similarità nel log
-  # Match per sottostringa, senza maiuscole. I canali di contenuto virale
-  # "smart qualcosa" sono semanticamente vicini alla domotica: l'embedding da
-  # solo non li distingue, la blocklist sì.
+  per_theme: 2      # quanti tenerne per tema (il meglio DI OGNI tema)
+  candidates: 12    # quanti chiederne: una ricerca costa 100 unità che siano 2 o 12
+  # Pavimento facoltativo: sotto questa similarità un video non entra comunque,
+  # nemmeno se c'è posto. 0 = spento, ed è giusto che parta spento — le
+  # similarità vere finiscono TUTTE nel log (INFO, visibili anche sotto
+  # uvicorn), e questa soglia si accende dopo averle lette. Con
+  # nomic-embed-text la banda utile parte da ~0.75: sotto ci sono già le coppie
+  # di testi estranei.
+  min_similarity: 0.0
+  # Match per sottostringa, senza maiuscole. Resta come rete per i recidivi:
+  # con l'ancoraggio giusto dovrebbe servire sempre meno.
   blocked_channels:
     - new viral gadgets
     - peppa pig

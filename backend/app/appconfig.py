@@ -210,20 +210,39 @@ class EnrichmentConfig(BaseModel):
 
 
 class VideosConfig(BaseModel):
-    """Il pannello video: pertinenza prima di tutto.
+    """Il pannello video: pertinenza per ordinamento, non per soglia.
 
-    ``order=viewCount`` su keyword generiche pesca anche contenuto virale
-    fuori tema (Peppa Pig su "smart home", storicamente). Due difese: la
-    similarità embedding tra titolo e keyword del tema, e una blocklist di
-    canali per i recidivi.
+    La prima versione filtrava con una soglia di similarità (0.4) e teneva
+    tutto ciò che la superava. Non ha mai scartato niente: con
+    nomic-embed-text due testi PRESI A CASO stanno già a 0.614 di similarità
+    media — misurato in questo repo, vedi i commenti di clustering in
+    config.yaml — quindi 0.4 era sotto il rumore del modello. L'unica difesa
+    che funzionava era la blocklist dei canali, cioè il rattoppo.
+
+    Ora si chiedono ``candidates`` video per tema e si tengono i ``per_theme``
+    più vicini all'ancoraggio: un ordinamento non ha una costante da azzeccare
+    e non svuota il pannello se la si sbaglia. ``min_similarity`` resta come
+    pavimento facoltativo, e parte SPENTO: si accende dopo aver letto le
+    similarità vere nel log, dove finiscono tutte.
     """
 
-    # Similarità coseno minima tra il titolo del video e le keyword del suo
-    # tema (stesso modello di embedding del clustering). 0 = filtro spento.
-    # La soglia giusta dipende dal modello: parte prudente, si tara guardando
-    # cosa scarta nel log.
-    min_similarity: float = 0.4
+    # Quanti video tenere per tema. Il pannello ne mostra il meglio di ciascuno,
+    # non il meglio in assoluto: altrimenti il tema più "video-genico" della
+    # settimana si prende tutte le caselle e gli altri spariscono.
+    per_theme: int = 2
+    # Quanti chiederne per poterli ordinare. Una ricerca costa 100 unità di
+    # quota QUALUNQUE sia questo numero (fino a 50), quindi chiederne pochi non
+    # fa risparmiare nulla: fa solo mancare i candidati.
+    candidates: int = 12
+    # Pavimento facoltativo: sotto questa similarità un video non entra
+    # comunque, nemmeno se c'è posto. 0 = spento. Da tarare LEGGENDO il log
+    # (tutte le similarità ci finiscono, tenute e scartate) e non a occhio: con
+    # nomic-embed-text la banda utile parte da ~0.75, perché sotto ci sono già
+    # le coppie di testi estranei.
+    min_similarity: float = 0.0
     # Canali esclusi a prescindere (match per sottostringa, case-insensitive).
+    # Con l'ancoraggio giusto dovrebbe servire sempre meno: è una rete, non il
+    # meccanismo.
     blocked_channels: list[str] = Field(default_factory=list)
 
 

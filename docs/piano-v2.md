@@ -124,6 +124,39 @@ si calcola in `radarGeometry.ts` con i suoi test, e finisce anche nel nome
 accessibile del blip: un'animazione, per chi usa uno screen reader, non esiste.
 Legenda solo quando c'è almeno un contatto nuovo.
 
+**Aggiornamento 23 agosto — il filtro video non aveva mai filtrato.**
+`videos.min_similarity` era 0.40, e in questo stesso repo è scritto che con
+nomic-embed-text due testi *presi a caso* stanno già a 0.614: la soglia era
+sotto il rumore del modello, quindi non ha mai scartato niente e l'unica difesa
+che funzionava era la blocklist dei canali — il rattoppo, non il meccanismo. I
+test passavano perché l'embedder finto metteva il pertinente a 0.99 e Peppa Pig
+a 0.10: nel mondo vero quel 0.10 non esiste.
+
+Tre correzioni, tutte a monte della soglia. L'ordinamento della ricerca passa da
+`viewCount` a `relevance` — `viewCount` è il `sort:stars` di YouTube, e qui è
+peggio che su GitHub, perché in una settimana un video tecnico fa cinquemila
+visualizzazioni e un gadget virale due milioni. La query e l'**ancoraggio**
+diventano due cose diverse: la query resta di keyword perché YouTube deve poterla
+cercare (il label di un'idea è spesso `@scope/pacchetto`), l'ancoraggio sono i
+label e i sommari delle idee in cima a quel tema — la domanda diventa "chi parla
+di ciò che ho trovato". E non si filtra più: si chiedono 12 candidati per tema e
+si tengono i 2 più vicini, per tema, così il tema più video-genico della
+settimana non si prende tutto il pannello.
+
+Misurato su 48 risultati veri: le similarità stanno fra 0.51 e 0.83 — nessuna
+sotto 0.40, come previsto. Ma il dato che conta è un altro: **le bande dei temi
+si sovrappongono**. Domotica sta fra 0.63 e 0.72, dev-infra fra 0.51 e 0.66, e
+il video *tenuto* più basso (0.64) sta sotto il video *scartato* più alto (0.72).
+Nessuna soglia globale può riprodurre questa selezione: la scala dipende
+dall'ancoraggio, non solo dalla pertinenza. Per questo `min_similarity` resta a
+0 — spenta per misura, non per prudenza — e il lavoro lo fa l'ordinamento.
+
+Quello che l'embedding NON sa fare, e va detto: misura la vicinanza al tema, non
+la qualità. «DAY 7 OF CODING UNTIL I MASTER IT» prende 0.60 in dev-infra, sopra
+video seri dello stesso tema. Per la qualità servirebbe un altro segnale
+(reputazione del canale, durata, rapporto visualizzazioni/like), non una soglia
+diversa.
+
 ## Asse D — "Sviluppo": le idee salvate diventano un piano di lavoro
 
 Oggi il pin è un segnalibro. La vista nuova ("Sviluppo") lo trasforma in un
